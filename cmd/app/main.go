@@ -99,7 +99,7 @@ func main() {
 
 	var telegramBot *telegram.BotService
 	if cfg.TelegramBotToken != "" && cfg.TelegramChatID != 0 {
-		telegramBot, err = telegram.NewBotService(cfg)
+		telegramBot, err = telegram.NewBotService(cfg, userConfigRepo)
 		if err != nil {
 			logger.Error().Err(err).Msg("Failed to initialize Telegram bot")
 		} else {
@@ -116,7 +116,7 @@ func main() {
 			}
 
 			telegramBot.Start(ctx)
-			telegramBot.SendMessage("<b>Stock Trading Bot Started</b>\n\nI won't notify you until trading token is needed.")
+			telegramBot.Broadcast("<b>Stock Trading Bot Started</b>\n\nI won't notify you until trading token is needed.")
 			logger.Info().Msg("Telegram bot started")
 		}
 	} else {
@@ -133,16 +133,14 @@ func main() {
 		defer redisClient.Close()
 	}
 
-
-
 	// === Initialize OTP Service ===
-	otpService := otp.NewService(redisClient, telegramBot)
+	otpService := otp.NewService(telegramBot)
 
 	// === Initialize DNSE Auth Service ===
 	dnseAuth := api.NewDNSEAuthService(cfg.DnseApiBaseUrl, cfg.DnseUsername, cfg.DnsePassword)
 
 	// === Initialize JWT Service ===
-	jwtService := jwt.NewService(redisClient, dnseAuth)
+	jwtService := jwt.NewService(dnseAuth)
 
 	// === Initialize API Server ===
 	// Start API server after all dependencies are initialized
@@ -150,21 +148,18 @@ func main() {
 		startAPIServer(cfg, marketService, accountService, positionService, signalService, watchlistService, recommendationService, stockPrefRepo, otpService, jwtService)
 	}()
 
-	authService := auth.NewAuthService(cfg)
+	authService := auth.NewAuthService(cfg, redisClient)
 	emailService := notification.NewEmailService(cfg)
 	_ = emailService
+
+	// Default simplified user ID
+	defaultUserID := int64(1)
 
 	// === Register RestartHandler with Telegram Bot ===
 	if telegramBot != nil {
 		restartHandler := RestartHandlerFunc(func(ctx context.Context, otp string) error {
-			// Delete old OTP from cache
-			otpService.Delete(ctx)
-
-			// Store new OTP in cache
-			otpService.Set(ctx, otp)
-
 			// Exchange OTP for trading token
-			_, err := authService.GetTradingToken(otp)
+			_, err := authService.GetTradingToken(ctx, defaultUserID, otp)
 			return err
 		})
 		telegramBot.SetRestartHandler(restartHandler)
@@ -186,32 +181,48 @@ func main() {
 				maxAttempts := 3
 				var tradingTokenReceived bool
 
+				// Check if we have a valid trading token in Redis first
+				if redisClient != nil {
+					cachedToken, err := redisClient.GetTradingToken(ctx, defaultUserID)
+					if err == nil && cachedToken != "" {
+						logger.Info().Msg("Found cached trading token in Redis")
+						authService.SetTradingToken(cachedToken)
+						tradingTokenReceived = true
+
+						// Initialize APIs
+						infoAPI := api.NewInfoAPI(authService.GetClient())
+						tradingAPI := api.NewTradingAPI(authService.GetClient(), authService.GetTradingTokenValue())
+
+						logger.Info().Msg("Info and Trading APIs initialized with cached token")
+						_ = infoAPI
+						_ = tradingAPI
+					}
+				}
+
 				for attempt := 1; attempt <= maxAttempts && !tradingTokenReceived; attempt++ {
 					attemptsLeft := maxAttempts - attempt
 
-					// Try to get OTP from Redis first, or request from Telegram
-					otpVal, err := otpService.GetOrRequest(ctx, 2*time.Minute)
+					// Request OTP from Telegram
+					otpVal, err := otpService.Request(ctx, 2*time.Minute)
 					if err != nil {
 						logger.Error().Err(err).Int("attempt", attempt).Msg("Failed to get OTP")
 						if attemptsLeft > 0 {
-							telegramBot.SendMessage(fmt.Sprintf("Failed to get OTP: %s\n\n%d attempts remaining.", err.Error(), attemptsLeft))
+							telegramBot.Broadcast(fmt.Sprintf("Failed to get OTP: %s\n\n%d attempts remaining.", err.Error(), attemptsLeft))
 						} else {
-							telegramBot.SendMessage("Failed to get OTP after all attempts.")
+							telegramBot.Broadcast("Failed to get OTP after all attempts.")
 						}
 						break
 					}
 
 					// Exchange OTP for trading token via API
-					tradingTokenResp, err := authService.GetTradingToken(otpVal)
+					tradingTokenResp, err := authService.GetTradingToken(ctx, defaultUserID, otpVal)
 					if err != nil {
 						logger.Error().Err(err).Int("attempt", attempt).Msg("Failed to exchange OTP for trading token")
-						// OTP might be invalid - delete from Redis
-						otpService.Delete(context.Background())
-
+						
 						if attemptsLeft > 0 {
-							telegramBot.SendMessage(fmt.Sprintf("Failed to get trading token: %s\n\nPlease send a NEW OTP. %d attempts remaining.", err.Error(), attemptsLeft))
+							telegramBot.Broadcast(fmt.Sprintf("Failed to get trading token: %s\n\nPlease send a NEW OTP. %d attempts remaining.", err.Error(), attemptsLeft))
 						} else {
-							telegramBot.SendMessage("Failed to get trading token after all attempts. Please restart the application.")
+							telegramBot.Broadcast("Failed to get trading token after all attempts. Please restart the application.")
 						}
 						continue // Try again with new OTP
 					}
@@ -219,7 +230,7 @@ func main() {
 					// Success!
 					tradingTokenReceived = true
 					logger.Info().Int("expiresIn", tradingTokenResp.ExpiresIn).Msg("Trading token received from API")
-					telegramBot.SendMessage("Trading token received successfully!")
+					telegramBot.Broadcast("Trading token received successfully!")
 
 					// Initialize APIs
 					infoAPI := api.NewInfoAPI(authService.GetClient())
@@ -291,7 +302,7 @@ func main() {
 	cancel()
 	wsClient.Close()
 	if telegramBot != nil {
-		telegramBot.SendMessage("Bot shutting down...")
+		telegramBot.Broadcast("Bot shutting down...")
 	}
 	logger.Info().Msg("Application stopped")
 }

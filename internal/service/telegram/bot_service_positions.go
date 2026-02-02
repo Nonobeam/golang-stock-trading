@@ -7,34 +7,37 @@ import (
 	"strings"
 	"time"
 
+	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/google/uuid"
 	"github.com/nonobeam/golang-stock-trading/internal/db/repository"
 	"github.com/nonobeam/golang-stock-trading/internal/logger"
 )
 
 // handleAddPositionCommand handles /addposition <symbol> <price> <qty> [stop]
-func (s *BotService) handleAddPositionCommand(text string) {
+func (s *BotService) handleAddPositionCommand(msg *tgbotapi.Message) {
+	chatID := msg.Chat.ID
+	text := msg.Text
 	if s.positionRepo == nil {
-		s.SendMessage("Position management not configured")
+		s.SendMessage(chatID, "Position management not configured")
 		return
 	}
 
 	args := strings.Fields(text)
 	if len(args) < 4 {
-		s.SendMessage("Usage: /addposition &lt;symbol&gt; &lt;price&gt; &lt;quantity&gt; [stop]\nExample: /addposition VNM 75000 100 71000")
+		s.SendMessage(chatID, "Usage: /addposition &lt;symbol&gt; &lt;price&gt; &lt;quantity&gt; [stop]\nExample: /addposition VNM 75000 100 71000")
 		return
 	}
 
 	symbol := strings.ToUpper(args[1])
 	entryPrice, err := strconv.ParseFloat(args[2], 64)
 	if err != nil {
-		s.SendMessage("Invalid entry price. Please use a number.")
+		s.SendMessage(chatID, "Invalid entry price. Please use a number.")
 		return
 	}
 
 	quantity, err := strconv.Atoi(args[3])
 	if err != nil {
-		s.SendMessage("Invalid quantity. Please use a whole number.")
+		s.SendMessage(chatID, "Invalid quantity. Please use a whole number.")
 		return
 	}
 
@@ -42,7 +45,7 @@ func (s *BotService) handleAddPositionCommand(text string) {
 	if len(args) >= 5 {
 		stopLoss, err = strconv.ParseFloat(args[4], 64)
 		if err != nil {
-			s.SendMessage("Invalid stop-loss. Please use a number.")
+			s.SendMessage(chatID, "Invalid stop-loss. Please use a number.")
 			return
 		}
 	} else {
@@ -52,12 +55,12 @@ func (s *BotService) handleAddPositionCommand(text string) {
 
 	// Validate inputs
 	if entryPrice <= 0 || quantity <= 0 || stopLoss <= 0 {
-		s.SendMessage("All values must be positive numbers")
+		s.SendMessage(chatID, "All values must be positive numbers")
 		return
 	}
 
 	if stopLoss >= entryPrice {
-		s.SendMessage("Stop-loss must be below entry price for long positions")
+		s.SendMessage(chatID, "Stop-loss must be below entry price for long positions")
 		return
 	}
 
@@ -79,7 +82,7 @@ func (s *BotService) handleAddPositionCommand(text string) {
 	ctx := context.Background()
 	if err := s.positionRepo.Create(ctx, position); err != nil {
 		logger.Error().Err(err).Msg("Failed to create position")
-		s.SendMessage("Failed to add position. Please try again.")
+		s.SendMessage(chatID, "Failed to add position. Please try again.")
 		return
 	}
 
@@ -88,7 +91,7 @@ func (s *BotService) handleAddPositionCommand(text string) {
 	totalRisk := riskPerShare * float64(quantity)
 	riskPercent := (riskPerShare / entryPrice) * 100
 
-	msg := fmt.Sprintf(
+	respText := fmt.Sprintf(
 		"<b>Position Added</b>\n\n"+
 			"Symbol: <b>%s</b>\n"+
 			"Entry: %s VND\n"+
@@ -107,19 +110,21 @@ func (s *BotService) handleAddPositionCommand(text string) {
 		formatPrice(totalRisk),
 	)
 
-	s.SendMessage(msg)
+	s.SendMessage(chatID, respText)
 }
 
 // handleEditPositionCommand handles /editposition <symbol>
-func (s *BotService) handleEditPositionCommand(text string) {
+func (s *BotService) handleEditPositionCommand(msg *tgbotapi.Message) {
+	chatID := msg.Chat.ID
+	text := msg.Text
 	if s.positionRepo == nil {
-		s.SendMessage("Position management not configured")
+		s.SendMessage(chatID, "Position management not configured")
 		return
 	}
 
 	args := strings.Fields(text)
 	if len(args) < 2 {
-		s.SendMessage("Usage: /editposition &lt;symbol&gt;\nExample: /editposition VNM")
+		s.SendMessage(chatID, "Usage: /editposition &lt;symbol&gt;\nExample: /editposition VNM")
 		return
 	}
 
@@ -131,17 +136,17 @@ func (s *BotService) handleEditPositionCommand(text string) {
 	position, err := s.positionRepo.GetBySymbol(ctx, defaultUserID, symbol)
 	if err != nil {
 		logger.Error().Err(err).Msg("Failed to fetch position")
-		s.SendMessage("Failed to retrieve position")
+		s.SendMessage(chatID, "Failed to retrieve position")
 		return
 	}
 
 	if position == nil {
-		s.SendMessage(fmt.Sprintf("No active position found for %s", symbol))
+		s.SendMessage(chatID, fmt.Sprintf("No active position found for %s", symbol))
 		return
 	}
 
 	// Show current position details and ask for new stop
-	msg := fmt.Sprintf(
+	respText := fmt.Sprintf(
 		"<b>Edit Position: %s</b>\n\n"+
 			"Current Entry: %s VND\n"+
 			"Current Stop: %s VND\n"+
@@ -153,7 +158,7 @@ func (s *BotService) handleEditPositionCommand(text string) {
 		position.Quantity,
 	)
 
-	s.SendMessage(msg)
+	s.SendMessage(chatID, respText)
 	// Note: Full implementation would need state management to handle the reply
 	// For now, this is a simplified version
 }

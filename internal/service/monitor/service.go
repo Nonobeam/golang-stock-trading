@@ -70,7 +70,7 @@ func (s *PriceMonitorService) checkMarketStatus() {
 
 	// Transition: Closed -> Open
 	if currentOpen && !s.wasOpen {
-		s.botService.SendMessage("<b>Market is ON</b>\n\nStart trading now! Good luck.")
+		s.botService.Broadcast("<b>Market is ON</b>\n\nStart trading now! Good luck.")
 	}
 
 	// Transition: Open -> Closed
@@ -83,9 +83,9 @@ func (s *PriceMonitorService) checkMarketStatus() {
 		vnTime := time.Now().In(loc)
 
 		if vnTime.Weekday() == time.Friday {
-			s.botService.SendMessage("<b>Market is OFF for weekend</b>\n\nCome back on Monday! Have a great weekend.")
+			s.botService.Broadcast("<b>Market is OFF for weekend</b>\n\nCome back on Monday! Have a great weekend.")
 		} else {
-			s.botService.SendMessage("<b>Market is OFF</b>\n\nRest now. See you next session.")
+			s.botService.Broadcast("<b>Market is OFF</b>\n\nRest now. See you next session.")
 		}
 	}
 

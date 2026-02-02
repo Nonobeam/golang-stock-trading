@@ -192,7 +192,7 @@ func (a *AlertService) notifyRiskWarning(alertType string, current, threshold fl
 		thresholdPct,
 	)
 
-	if err := a.botService.SendMessage(msg); err != nil {
+	if err := a.botService.Broadcast(msg); err != nil {
 		logger.Error().Err(err).Str("type", alertType).Msg("Failed to send risk warning")
 	}
 }
@@ -213,7 +213,7 @@ func (a *AlertService) notifyRiskCritical(alertType string, current, limit float
 		limitPct,
 	)
 
-	if err := a.botService.SendMessage(msg); err != nil {
+	if err := a.botService.Broadcast(msg); err != nil {
 		logger.Error().Err(err).Str("type", alertType).Msg("Failed to send critical alert")
 	}
 }
@@ -227,7 +227,7 @@ func (a *AlertService) notifyCapitalWarning(utilization float64) {
 		utilization*100,
 	)
 
-	if err := a.botService.SendMessage(msg); err != nil {
+	if err := a.botService.Broadcast(msg); err != nil {
 		logger.Error().Err(err).Msg("Failed to send capital warning")
 	}
 }
@@ -265,7 +265,7 @@ func (a *AlertService) notifyTargetApproaching(pos Position) {
 		percentToTarget,
 	)
 
-	if err := a.botService.SendMessage(msg); err != nil {
+	if err := a.botService.Broadcast(msg); err != nil {
 		logger.Error().Err(err).Str("symbol", pos.Symbol).Msg("Failed to send target alert")
 	}
 }
@@ -286,7 +286,7 @@ func (a *AlertService) notifyStopApproaching(pos Position) {
 		pos.RMultiple,
 	)
 
-	if err := a.botService.SendMessage(msg); err != nil {
+	if err := a.botService.Broadcast(msg); err != nil {
 		logger.Error().Err(err).Str("symbol", pos.Symbol).Msg("Failed to send stop alert")
 	}
 }
@@ -307,7 +307,7 @@ func (a *AlertService) notifyTimeStop(pos Position, timeHeld time.Duration) {
 		formatPrice(pos.CurrentPrice),
 	)
 
-	if err := a.botService.SendMessage(msg); err != nil {
+	if err := a.botService.Broadcast(msg); err != nil {
 		logger.Error().Err(err).Str("symbol", pos.Symbol).Msg("Failed to send time stop alert")
 	}
 }
@@ -331,7 +331,7 @@ func (a *AlertService) NotifyTargetHit(pos Position, targetNum int, targetPrice 
 		pos.RMultiple,
 	)
 
-	return a.botService.SendMessage(msg)
+	return a.botService.Broadcast(msg)
 }
 
 // NotifyStopHit sends notification when stop loss is triggered
@@ -351,5 +351,5 @@ func (a *AlertService) NotifyStopHit(pos Position) error {
 		loss,
 	)
 
-	return a.botService.SendMessage(msg)
+	return a.botService.Broadcast(msg)
 }

@@ -24,7 +24,7 @@ func (s *BotService) SendStopLossAlert(alert positionService.PositionAlert) {
 		alert.Message,
 	)
 
-	if err := s.SendMessage(msg); err != nil {
+	if err := s.Broadcast(msg); err != nil {
 		logger.Error().
 			Err(err).
 			Str("symbol", alert.Symbol).
@@ -49,7 +49,7 @@ func (s *BotService) SendBreakevenAlert(alert positionService.PositionAlert) {
 		alert.Message,
 	)
 
-	if err := s.SendMessage(msg); err != nil {
+	if err := s.Broadcast(msg); err != nil {
 		logger.Error().
 			Err(err).
 			Str("symbol", alert.Symbol).
@@ -74,7 +74,7 @@ func (s *BotService) SendTargetAlert(alert positionService.PositionAlert) {
 		alert.Message,
 	)
 
-	if err := s.SendMessage(msg); err != nil {
+	if err := s.Broadcast(msg); err != nil {
 		logger.Error().
 			Err(err).
 			Str("symbol", alert.Symbol).

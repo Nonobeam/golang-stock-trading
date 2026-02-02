@@ -1,17 +1,20 @@
 package auth
 
 import (
+	"context"
 	"encoding/json"
 	"time"
 
 	"github.com/nonobeam/golang-stock-trading/internal/config"
 	"github.com/nonobeam/golang-stock-trading/internal/errors"
 	"github.com/nonobeam/golang-stock-trading/internal/logger"
+	redisclient "github.com/nonobeam/golang-stock-trading/internal/redis"
 	"github.com/nonobeam/golang-stock-trading/pkg/httpclient"
 )
 
 type AuthService struct {
 	client       *httpclient.Client
+	redis        *redisclient.Client
 	accessToken  string
 	tradingToken string
 }
@@ -32,10 +35,11 @@ type TradingTokenResponse struct {
 	ExpiresIn    int    `json:"expiresIn"`
 }
 
-func NewAuthService(cfg *config.Config) *AuthService {
+func NewAuthService(cfg *config.Config, redis *redisclient.Client) *AuthService {
 	client := httpclient.New(cfg.DnseApiBaseUrl, 30*time.Second)
 	return &AuthService{
 		client: client,
+		redis:  redis,
 	}
 }
 
@@ -65,7 +69,7 @@ func (s *AuthService) Login(username, password string) (*LoginResponse, error) {
 	return &resp, nil
 }
 
-func (s *AuthService) GetTradingToken(otp string) (*TradingTokenResponse, error) {
+func (s *AuthService) GetTradingToken(ctx context.Context, userID int64, otp string) (*TradingTokenResponse, error) {
 	logger.Info().Msg("Exchanging Smart OTP for trading token")
 
 	headers := map[string]string{
@@ -85,6 +89,16 @@ func (s *AuthService) GetTradingToken(otp string) (*TradingTokenResponse, error)
 
 	s.tradingToken = resp.TradingToken
 	logger.Info().Int("expiresIn", resp.ExpiresIn).Msg("Trading token received successfully")
+
+	// Cache trading token in Redis if available
+	if s.redis != nil {
+		if err := s.redis.SetTradingToken(ctx, userID, s.tradingToken, resp.ExpiresIn); err != nil {
+			logger.Error().Err(err).Msg("Failed to cache trading token in Redis")
+		} else {
+			logger.Info().Int64("userID", userID).Msg("Trading token cached in Redis")
+		}
+	}
+
 	return &resp, nil
 }
 

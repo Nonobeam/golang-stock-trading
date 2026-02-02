@@ -10,12 +10,9 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// Client wraps Redis client for OTP and JWT token operations
+// Client wraps Redis client for Trading Token operations
 type Client struct {
-	client      *redis.Client
-	otpKey      string
-	otpTTL      time.Duration
-	jwtTokenKey string
+	client *redis.Client
 }
 
 // NewClient creates a new Redis client
@@ -41,19 +38,17 @@ func NewClient(cfg *config.Config) (*Client, error) {
 		Msg("Redis connected successfully")
 
 	return &Client{
-		client:      rdb,
-		otpKey:      cfg.RedisOTPKey,
-		otpTTL:      time.Duration(cfg.RedisOTPTTL) * time.Second,
-		jwtTokenKey: cfg.RedisJWTKey,
+		client: rdb,
 	}, nil
 }
 
-// GetOTP retrieves OTP from Redis
-func (c *Client) GetOTP(ctx context.Context) (string, error) {
+// GetTradingToken retrieves trading token for a user from Redis
+func (c *Client) GetTradingToken(ctx context.Context, userID int64) (string, error) {
 	if c == nil || c.client == nil {
 		return "", fmt.Errorf("redis client not initialized")
 	}
-	val, err := c.client.Get(ctx, c.otpKey).Result()
+	key := fmt.Sprintf("trading-token:%d", userID)
+	val, err := c.client.Get(ctx, key).Result()
 	if err == redis.Nil {
 		return "", nil // Key doesn't exist
 	}
@@ -63,58 +58,14 @@ func (c *Client) GetOTP(ctx context.Context) (string, error) {
 	return val, nil
 }
 
-// SetOTP stores OTP in Redis with TTL (atomic - replaces existing)
-func (c *Client) SetOTP(ctx context.Context, otp string) error {
+// SetTradingToken stores trading token for a user in Redis with expiration
+func (c *Client) SetTradingToken(ctx context.Context, userID int64, token string, expiresIn int) error {
 	if c == nil || c.client == nil {
 		return fmt.Errorf("redis client not initialized")
 	}
-	return c.client.SetEx(ctx, c.otpKey, otp, c.otpTTL).Err()
-}
-
-// DeleteOTP removes OTP from Redis
-func (c *Client) DeleteOTP(ctx context.Context) error {
-	if c == nil || c.client == nil {
-		return fmt.Errorf("redis client not initialized")
-	}
-	return c.client.Del(ctx, c.otpKey).Err()
-}
-
-// GetOTPTTL gets remaining TTL for OTP
-func (c *Client) GetOTPTTL(ctx context.Context) (time.Duration, error) {
-	if c == nil || c.client == nil {
-		return 0, fmt.Errorf("redis client not initialized")
-	}
-	ttl, err := c.client.TTL(ctx, c.otpKey).Result()
-	if err != nil {
-		return 0, err
-	}
-	if ttl < 0 {
-		return 0, nil // Key doesn't exist or has no expiry
-	}
-	return ttl, nil
-}
-
-// GetJWTToken retrieves JWT token from Redis
-func (c *Client) GetJWTToken(ctx context.Context) (string, error) {
-	if c == nil || c.client == nil {
-		return "", fmt.Errorf("redis client not initialized")
-	}
-	val, err := c.client.Get(ctx, c.jwtTokenKey).Result()
-	if err == redis.Nil {
-		return "", nil // Key doesn't exist
-	}
-	if err != nil {
-		return "", err
-	}
-	return val, nil
-}
-
-// SetJWTToken stores JWT token in Redis with no expiration (permanent)
-func (c *Client) SetJWTToken(ctx context.Context, token string) error {
-	if c == nil || c.client == nil {
-		return fmt.Errorf("redis client not initialized")
-	}
-	return c.client.Set(ctx, c.jwtTokenKey, token, 0).Err()
+	key := fmt.Sprintf("trading-token:%d", userID)
+	// expiresIn is in seconds
+	return c.client.Set(ctx, key, token, time.Duration(expiresIn)*time.Second).Err()
 }
 
 // Ping checks Redis connection

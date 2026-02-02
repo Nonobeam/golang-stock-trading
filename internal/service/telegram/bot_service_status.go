@@ -5,13 +5,16 @@ import (
 	"fmt"
 	"strings"
 
+	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/nonobeam/golang-stock-trading/internal/logger"
 )
 
-func (s *BotService) handleStatusCommand() {
+func (s *BotService) handleStatusCommand(msg *tgbotapi.Message) {
+	chatID := msg.Chat.ID
+	
 	// Check dependencies
 	if s.watchlistRepo == nil {
-		s.SendMessage("Watchlist not configured")
+		s.SendMessage(chatID, "Watchlist not configured")
 		return
 	}
 
@@ -23,19 +26,19 @@ func (s *BotService) handleStatusCommand() {
 	watchlistItems, err := s.watchlistRepo.GetByUserID(ctx, defaultUserID)
 	if err != nil {
 		logger.Error().Err(err).Msg("Failed to fetch watchlist")
-		s.SendMessage("Failed to retrieve watchlist. Please try again later.")
+		s.SendMessage(chatID, "Failed to retrieve watchlist. Please try again later.")
 		return
 	}
 
 	// Handle empty watchlist
 	if len(watchlistItems) == 0 {
-		s.SendMessage("<b>Stock Status</b>\n\nNo stocks are currently being tracked.\n\nUse /watch &lt;symbol&gt; to add stocks to your watchlist.")
+		s.SendMessage(chatID, "<b>Stock Status</b>\n\nNo stocks are currently being tracked.\n\nUse /watch &lt;symbol&gt; to add stocks to your watchlist.")
 		return
 	}
 
 	// Build status message
-	var msg strings.Builder
-	msg.WriteString(fmt.Sprintf("<b>Stock Status</b> (%d stocks)\n\n", len(watchlistItems)))
+	var msgBuilder strings.Builder
+	msgBuilder.WriteString(fmt.Sprintf("<b>Stock Status</b> (%d stocks)\n\n", len(watchlistItems)))
 
 	for i, item := range watchlistItems {
 		symbol := item.Symbol
@@ -72,14 +75,14 @@ func (s *BotService) handleStatusCommand() {
 		}
 
 		// Format entry
-		msg.WriteString(fmt.Sprintf("<b>%s</b>\n", symbol))
-		msg.WriteString(fmt.Sprintf("  Price: %s VND%s%s\n", priceText, changeText, avgPriceText))
+		msgBuilder.WriteString(fmt.Sprintf("<b>%s</b>\n", symbol))
+		msgBuilder.WriteString(fmt.Sprintf("  Price: %s VND%s%s\n", priceText, changeText, avgPriceText))
 
 		// Add spacing between entries (but not after the last one)
 		if i < len(watchlistItems)-1 {
-			msg.WriteString("\n")
+			msgBuilder.WriteString("\n")
 		}
 	}
 
-	s.SendMessage(msg.String())
+	s.SendMessage(chatID, msgBuilder.String())
 }

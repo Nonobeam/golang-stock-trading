@@ -31,7 +31,7 @@ type Config struct {
 
 	// Trading Configuration
 	Trading TradingConfig
-
+	
 	// API Server
 	ServerPort  string
 	JWTSecret   string
@@ -117,7 +117,6 @@ func Load() (*Config, error) {
 	viper.SetDefault("REDIS_PORT", 6379)
 	viper.SetDefault("REDIS_DB", 0)
 	viper.SetDefault("REDIS_OTP_TTL", 300) // 5 minutes
-	viper.SetDefault("REDIS_JWT_KEY", "dnse:jwt_token")
 
 	cfg = &Config{
 		AppName:  viper.GetString("APP_NAME"),
@@ -169,7 +168,6 @@ func Load() (*Config, error) {
 		RedisDB:       viper.GetInt("REDIS_DB"),
 		RedisOTPKey:   viper.GetString("REDIS_OTP_KEY"),
 		RedisOTPTTL:   viper.GetInt("REDIS_OTP_TTL"),
-		RedisJWTKey:   viper.GetString("REDIS_JWT_KEY"),
 	}
 
 	return cfg, nil

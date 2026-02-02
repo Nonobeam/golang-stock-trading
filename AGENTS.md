@@ -36,4 +36,17 @@ If you need to commit or push changes, you MUST use the following scripts:
 
 Do not use raw `git commit` or `git push` commands.
 
+### Docker Build Best Practices
+
+When building multiple Docker images, **always run builds in parallel** to save time:
+
+```bash
+# Build both images in parallel
+docker build -t golang-stock-trading:latest -f Dockerfile . &
+docker build -t golang-stock-trading-ml:latest -f Dockerfile.ml . &
+wait
+```
+
+This reduces total build time from ~135 seconds to ~92 seconds (the time of the longest build).
+
 <!-- OPENSPEC:END -->

@@ -32,11 +32,14 @@ type ImportState struct {
 
 type BotService struct {
 	bot          *tgbotapi.BotAPI
-	chatID       int64
-	otpChan      chan string
-	mu           sync.Mutex
-	waitingOTP   bool
-	isRestartOTP bool // true when waiting for OTP from /restart command
+	activeChatID int64
+	otpChans     map[int64]chan string
+	mu           sync.RWMutex
+	waitingOTP   map[int64]bool
+	isRestartOTP map[int64]bool
+
+	// User management
+	userConfigRepo *repository.UserConfigRepository
 
 	// Optional dependencies for commands
 	riskManager      RiskManager
@@ -49,9 +52,12 @@ type BotService struct {
 	// Import state and ML client
 	importState ImportState
 	mlClient    ml.MLPredictionServiceClient
+	
+	// Single channel for app-level OTP request (legacy)
+	otpChan chan string
 }
 
-func NewBotService(cfg *config.Config) (*BotService, error) {
+func NewBotService(cfg *config.Config, userConfigRepo *repository.UserConfigRepository) (*BotService, error) {
 	bot, err := tgbotapi.NewBotAPI(cfg.TelegramBotToken)
 	if err != nil {
 		logger.Error().Err(err).Msg("Failed to create Telegram bot")
@@ -61,9 +67,13 @@ func NewBotService(cfg *config.Config) (*BotService, error) {
 	logger.Info().Str("username", bot.Self.UserName).Msg("Telegram bot authorized")
 
 	return &BotService{
-		bot:     bot,
-		chatID:  cfg.TelegramChatID,
-		otpChan: make(chan string, 1),
+		bot:            bot,
+		activeChatID:   cfg.TelegramChatID,
+		userConfigRepo: userConfigRepo,
+		otpChans:       make(map[int64]chan string),
+		waitingOTP:     make(map[int64]bool),
+		isRestartOTP:   make(map[int64]bool),
+		otpChan:        make(chan string),
 	}, nil
 }
 
@@ -81,24 +91,11 @@ func (s *BotService) Start(ctx context.Context) {
 			case update := <-updates:
 				// Handle regular messages
 				if update.Message != nil {
-					if update.Message.Chat.ID != s.chatID {
-						logger.Warn().
-							Int64("chatId", update.Message.Chat.ID).
-							Msg("Received message from unauthorized chat")
-						continue
-					}
-
 					s.handleMessage(update.Message)
 				}
 
 				// Handle callback queries (inline keyboard buttons)
 				if update.CallbackQuery != nil {
-					if update.CallbackQuery.Message.Chat.ID != s.chatID {
-						logger.Warn().
-							Int64("chatId", update.CallbackQuery.Message.Chat.ID).
-							Msg("Received callback from unauthorized chat")
-						continue
-					}
 					s.handleCallbackQuery(update.CallbackQuery)
 				}
 			}
@@ -108,7 +105,8 @@ func (s *BotService) Start(ctx context.Context) {
 
 func (s *BotService) handleMessage(msg *tgbotapi.Message) {
 	text := msg.Text
-	logger.Debug().Str("text", text).Msg("Received Telegram message")
+	chatID := msg.Chat.ID
+	logger.Debug().Str("text", text).Int64("chatID", chatID).Msg("Received Telegram message")
 
 	// Commands always take priority - check if this is a command first
 	if msg.IsCommand() {
@@ -129,46 +127,61 @@ func (s *BotService) handleMessage(msg *tgbotapi.Message) {
 	}
 
 	// Non-command messages: check if we're waiting for OTP
-	s.mu.Lock()
-	waiting := s.waitingOTP
-	s.mu.Unlock()
+	s.mu.RLock()
+	waiting := s.waitingOTP[chatID]
+	// Also check general waiting flag for app startup
+	appWaiting := s.waitingOTP[0] // Hack using 0 for app-level
+	s.mu.RUnlock()
 
-	if waiting {
+	if waiting || appWaiting {
 		otp := extractOTP(text)
 		if otp != "" {
 			// Check if this is a restart OTP
-			s.mu.Lock()
-			isRestart := s.isRestartOTP
-			s.mu.Unlock()
+			s.mu.RLock()
+			isRestart := s.isRestartOTP[chatID]
+			s.mu.RUnlock()
 
 			if isRestart {
-				s.handleRestartOTP(otp)
+				s.handleRestartOTP(chatID, otp)
 			} else {
-				s.otpChan <- otp
-				s.SendMessage("Smart OTP received! Exchanging for trading token...")
+				// Send OTP to the user's channel
+				s.mu.RLock()
+				ch, exists := s.otpChans[chatID]
+				s.mu.RUnlock()
+				if exists {
+					ch <- otp
+					s.SendMessage(chatID, "Smart OTP received! Exchanging for trading token...")
+				}
+				
+				// Send to app-level channel if waiting
+				select {
+				case s.otpChan <- otp:
+					s.SendMessage(chatID, "Smart OTP received by application!")
+				default:
+				}
 			}
 		} else {
-			s.SendMessage("Invalid OTP format. Please send exactly 6 digits.")
+			s.SendMessage(chatID, "Invalid OTP format. Please send exactly 6 digits.")
 		}
 		return
 	}
 
 	// Not waiting for OTP and not a command
 	if text != "" {
-		s.SendMessage("I'm not waiting for Smart OTP right now. Type /help to see available commands.")
+		s.SendMessage(chatID, "I'm not waiting for Smart OTP right now. Type /help to see available commands.")
 	}
 }
 
 // handleCommand processes bot commands
 func (s *BotService) handleCommand(msg *tgbotapi.Message) {
 	text := msg.Text
-
+	chatID := msg.Chat.ID
 
 	switch msg.Command() {
 	case "start":
-		s.SendMessage("Welcome to Stock Trading Bot!\\n\\nI will notify you when Smart OTP is needed. Get OTP from EntradeX app.\\n\\nType /help to see available commands.")
+		s.SendMessage(chatID, "Welcome to Stock Trading Bot!\\n\\nI will notify you when Smart OTP is needed. Get OTP from EntradeX app.\\n\\nType /help to see available commands.")
 	case "status":
-		s.handleStatusCommand()
+		s.handleStatusCommand(msg)
 	case "help":
 		helpText := "<b>Available Commands:</b>\n\n" +
 			"<b>Data & AI:</b>\n" +
@@ -188,81 +201,100 @@ func (s *BotService) handleCommand(msg *tgbotapi.Message) {
 			"/restart - Re-authenticate with new OTP\n" +
 			"/status - Check bot status\n" +
 			"/help - Show this help"
-		s.SendMessage(helpText)
+		s.SendMessage(chatID, helpText)
 	case "import":
-		s.handleImportCommand(text)
+		s.handleImportCommand(msg)
 	case "train":
-		s.handleTrainCommand(text)
+		s.handleTrainCommand(msg)
 	case "predict":
-		s.handlePredictCommand(text)
+		s.handlePredictCommand(msg)
 	case "time":
-		s.handleTimeCommand()
+		s.handleTimeCommand(msg)
 	case "signals":
-		// TODO: Implement - query today's signals from database
-		s.SendMessage("<b>Today's Signals</b>\n\n<i>Feature coming soon. Signals will be shown here.</i>")
+		s.SendMessage(chatID, "<b>Today's Signals</b>\n\n<i>Feature coming soon. Signals will be shown here.</i>")
 	case "watch":
-		// TODO: Implement - add symbol to watchlist
 		args := strings.Fields(text)
 		if len(args) < 2 {
-			s.SendMessage("Usage: /watch &lt;symbol&gt;\nExample: /watch VNM")
+			s.SendMessage(chatID, "Usage: /watch &lt;symbol&gt;\nExample: /watch VNM")
 			return
 		}
 		symbol := strings.ToUpper(args[1])
-		s.SendMessage(fmt.Sprintf("Added <code>%s</code> to watchlist\n\n<i>Feature fully coming soon.</i>", symbol))
+		s.SendMessage(chatID, fmt.Sprintf("Added <code>%s</code> to watchlist\n\n<i>Feature fully coming soon.</i>", symbol))
 	case "unwatch":
-		// TODO: Implement - remove symbol from watchlist
 		args := strings.Fields(text)
 		if len(args) < 2 {
-			s.SendMessage("Usage: /unwatch &lt;symbol&gt;\nExample: /unwatch VNM")
+			s.SendMessage(chatID, "Usage: /unwatch &lt;symbol&gt;\nExample: /unwatch VNM")
 			return
 		}
 		symbol := strings.ToUpper(args[1])
-		s.SendMessage(fmt.Sprintf("Removed <code>%s</code> from watchlist\n\n<i>Feature fully coming soon.</i>", symbol))
+		s.SendMessage(chatID, fmt.Sprintf("Removed <code>%s</code> from watchlist\n\n<i>Feature fully coming soon.</i>", symbol))
 	case "risk":
-		s.handleRiskCommand()
+		s.handleRiskCommand(msg)
 	case "limits":
-		s.handleLimitsCommand()
+		s.handleLimitsCommand(msg)
 	case "positions":
-		s.handlePositionsCommand()
+		s.handlePositionsCommand(msg)
 	case "addposition":
-		s.handleAddPositionCommand(text)
+		s.handleAddPositionCommand(msg)
 	case "editposition":
-		s.handleEditPositionCommand(text)
+		s.handleEditPositionCommand(msg)
 	case "position":
-		// TODO: Implement - show detailed position
 		args := strings.Fields(text)
 		if len(args) < 2 {
-			s.SendMessage("Usage: /position &lt;symbol&gt;\nExample: /position VNM")
+			s.SendMessage(chatID, "Usage: /position &lt;symbol&gt;\nExample: /position VNM")
 			return
 		}
 		symbol := strings.ToUpper(args[1])
-		s.SendMessage(fmt.Sprintf("<b>Position: %s</b>\n\n<i>Feature coming soon.</i>", symbol))
+		s.SendMessage(chatID, fmt.Sprintf("<b>Position: %s</b>\n\n<i>Feature coming soon.</i>", symbol))
 	case "restart":
-		s.handleRestartCommand()
-	default:
-		s.SendMessage("Unknown command. Type /help to see available commands.")
+		s.handleRestartCommand(msg)
 	}
 }
 
-func (s *BotService) SendMessage(text string) error {
-	msg := tgbotapi.NewMessage(s.chatID, text)
+// getUserContext retrieves or creates a user configuration based on their chat ID
+func (s *BotService) getUserContext(chatID int64) (*repository.UserConfig, error) {
+	ctx := context.Background()
+	user, err := s.userConfigRepo.GetOrCreateUserByChatID(ctx, chatID)
+	if err != nil {
+		logger.Error().Err(err).Int64("chatID", chatID).Msg("Failed to get or create user")
+		return nil, err
+	}
+	
+	if user.UserID == 0 {
+		logger.Warn().Int64("chatID", chatID).Msg("User created with zero ID")
+	}
+	
+	return user, nil
+}
+
+// SendMessage sends a message to a specific chat ID
+func (s *BotService) SendMessage(chatID int64, text string) error {
+	msg := tgbotapi.NewMessage(chatID, text)
 	msg.ParseMode = "HTML"
 	_, err := s.bot.Send(msg)
 	if err != nil {
-		logger.Error().Err(err).Msg("Failed to send Telegram message")
+		logger.Error().Err(err).Int64("chatID", chatID).Msg("Failed to send Telegram message")
 		return err
 	}
 	return nil
 }
 
+// Broadcast sends a message to the active (admin) chat ID
+func (s *BotService) Broadcast(text string) error {
+	if s.activeChatID == 0 {
+		return fmt.Errorf("no active chat ID for broadcast")
+	}
+	return s.SendMessage(s.activeChatID, text)
+}
+
 func (s *BotService) RequestSmartOTP(timeout time.Duration) (string, error) {
 	s.mu.Lock()
-	s.waitingOTP = true
+	s.waitingOTP[0] = true // 0 for app-level request
 	s.mu.Unlock()
 
 	defer func() {
 		s.mu.Lock()
-		s.waitingOTP = false
+		s.waitingOTP[0] = false
 		s.mu.Unlock()
 	}()
 
@@ -272,7 +304,13 @@ func (s *BotService) RequestSmartOTP(timeout time.Duration) (string, error) {
 	}
 
 	timeoutMsg := fmt.Sprintf("%.0f", timeout.Minutes())
-	err := s.SendMessage("<b>Smart OTP Required</b>\n\nPlease open <b>EntradeX</b> app and send your 6-digit Smart OTP.\n\nTimeout: " + timeoutMsg + " minutes")
+	// Use activeChatID if available, else this will fail or broadcast?
+	// Assuming activeChatID is set from config
+	if s.activeChatID == 0 {
+		return "", fmt.Errorf("active chat ID not configured")
+	}
+	
+	err := s.SendMessage(s.activeChatID, "<b>Smart OTP Required</b>\n\nPlease open <b>EntradeX</b> app and send your 6-digit Smart OTP.\n\nTimeout: " + timeoutMsg + " minutes")
 	if err != nil {
 		return "", err
 	}
@@ -282,19 +320,19 @@ func (s *BotService) RequestSmartOTP(timeout time.Duration) (string, error) {
 		logger.Info().Msg("Smart OTP received from Telegram")
 		return otp, nil
 	case <-time.After(timeout):
-		s.SendMessage("Smart OTP timeout. Please run the application again.")
+		s.SendMessage(s.activeChatID, "Smart OTP timeout. Please run the application again.")
 		return "", errors.ErrTradingTokenTimeout
 	}
 }
 
 func (s *BotService) NotifyStockAlert(symbol string, price float64, alertType string) error {
 	msg := fmt.Sprintf("<b>Stock Alert</b>\n\nSymbol: <code>%s</code>\nPrice: <code>%.2f</code>\nType: %s", symbol, price, alertType)
-	return s.SendMessage(msg)
+	return s.Broadcast(msg)
 }
 
 func (s *BotService) NotifyTradeExecuted(symbol string, side string, quantity int, price float64) error {
 	msg := fmt.Sprintf("<b>Trade Executed</b>\n\nSymbol: <code>%s</code>\nSide: %s\nQuantity: %d\nPrice: %.2f", symbol, side, quantity, price)
-	return s.SendMessage(msg)
+	return s.Broadcast(msg)
 }
 
 // NotifyPriceMonitorAlert sends a price change alert with advice
@@ -316,7 +354,7 @@ func (s *BotService) NotifyPriceMonitorAlert(symbol string, price, changePct flo
 		changePct*100,
 		advice,
 	)
-	return s.SendMessage(msg)
+	return s.Broadcast(msg)
 }
 
 func extractOTP(text string) string {
@@ -391,13 +429,13 @@ func (s *BotService) NotifySignalDetected(symbol, signalType string, score int, 
 		detectedAt.Format("2006-01-02 15:04:05"),
 	)
 
-	return s.SendMessage(msg)
+	return s.Broadcast(msg)
 }
 
 // NotifyBatchSignals sends a daily summary of detected signals
 func (s *BotService) NotifyBatchSignals(signals []SignalSummary) error {
 	if len(signals) == 0 {
-		return s.SendMessage("<b>Daily Signal Summary</b>\n\nNo signals detected today.")
+		return s.Broadcast("<b>Daily Signal Summary</b>\n\nNo signals detected today.")
 	}
 
 	// Group by score tier
@@ -451,7 +489,7 @@ func (s *BotService) NotifyBatchSignals(signals []SignalSummary) error {
 
 	msg.WriteString("\n<i>Use /signals for detailed information</i>")
 
-	return s.SendMessage(msg.String())
+	return s.Broadcast(msg.String())
 }
 
 // SignalSummary represents a signal for batch notifications
@@ -499,9 +537,10 @@ func getScoreQuality(score int) string {
 
 // Command handlers
 
-func (s *BotService) handleRiskCommand() {
+func (s *BotService) handleRiskCommand(msg *tgbotapi.Message) {
 	if s.riskManager == nil {
-		s.SendMessage("⚠️ Risk manager not configured")
+	chatID := msg.Chat.ID
+		s.SendMessage(chatID, "⚠️ Risk manager not configured")
 		return
 	}
 
@@ -520,7 +559,7 @@ func (s *BotService) handleRiskCommand() {
 		riskStatus = "WARNING"
 	}
 
-	msg := fmt.Sprintf(
+	respText := fmt.Sprintf(
 		"<b>Portfolio Risk Status</b> [%s]\n\n"+
 			"<b>Portfolio Risk:</b> %.2f%% / %.2f%%\n"+
 			"<b>Daily Loss:</b> %.2f%% / %.2f%%\n"+
@@ -534,16 +573,17 @@ func (s *BotService) handleRiskCommand() {
 		capitalUtil,
 	)
 
-	s.SendMessage(msg)
+	s.SendMessage(msg.Chat.ID, respText)
 }
 
-func (s *BotService) handleLimitsCommand() {
+func (s *BotService) handleLimitsCommand(msg *tgbotapi.Message) {
 	if s.riskManager == nil {
-		s.SendMessage("Risk manager not configured")
+	chatID := msg.Chat.ID
+		s.SendMessage(chatID, "Risk manager not configured")
 		return
 	}
 
-	msg := "<b>Risk Limits</b>\n\n" +
+	respText := "<b>Risk Limits</b>\n\n" +
 		"<b>Portfolio Limits:</b>\n" +
 		"  • Max Risk: 6.0%\n" +
 		"  • Max Positions: 3\n" +
@@ -557,24 +597,25 @@ func (s *BotService) handleLimitsCommand() {
 		"  • Min Liquidity: 100M VND/day\n\n" +
 		"<i>Use /risk for current status</i>"
 
-	s.SendMessage(msg)
+	s.SendMessage(msg.Chat.ID, respText)
 }
 
-func (s *BotService) handlePositionsCommand() {
+func (s *BotService) handlePositionsCommand(msg *tgbotapi.Message) {
 	if s.positionTracker == nil {
-		s.SendMessage("Position tracker not configured")
+	chatID := msg.Chat.ID
+		s.SendMessage(chatID, "Position tracker not configured")
 		return
 	}
 
 	positions := s.positionTracker.GetActivePositions()
 
 	if len(positions) == 0 {
-		s.SendMessage("<b>Active Positions</b>\n\n<i>No active positions</i>")
+		s.SendMessage(msg.Chat.ID, "<b>Active Positions</b>\n\n<i>No active positions</i>")
 		return
 	}
 
-	var msg strings.Builder
-	msg.WriteString(fmt.Sprintf("<b>Active Positions</b> (%d)\n\n", len(positions)))
+	var msgBuilder strings.Builder
+	msgBuilder.WriteString(fmt.Sprintf("<b>Active Positions</b> (%d)\n\n", len(positions)))
 
 	for _, pos := range positions {
 		pnlStatus := "(+)"
@@ -582,7 +623,7 @@ func (s *BotService) handlePositionsCommand() {
 			pnlStatus = "(-)"
 		}
 
-		msg.WriteString(fmt.Sprintf(
+		msgBuilder.WriteString(fmt.Sprintf(
 			"<b>%s</b> %s\n"+
 				"  Entry: %s | Current: %s\n"+
 				"  P&L: %+.2fR %s | Progress: %.0f%%\n\n",
@@ -596,9 +637,9 @@ func (s *BotService) handlePositionsCommand() {
 		))
 	}
 
-	msg.WriteString("<i>Use /position <symbol> for details</i>")
+	msgBuilder.WriteString("<i>Use /position <symbol> for details</i>")
 
-	s.SendMessage(msg.String())
+	s.SendMessage(msg.Chat.ID, msgBuilder.String())
 }
 
 // SetRiskManager sets the risk manager for command handling
@@ -637,30 +678,29 @@ func (s *BotService) SetMLClient(client ml.MLPredictionServiceClient) {
 }
 
 // handleRestartCommand handles the /restart command
-func (s *BotService) handleRestartCommand() {
+func (s *BotService) handleRestartCommand(msg *tgbotapi.Message) {
 	if s.restartHandler == nil {
-		s.SendMessage("Restart handler not configured. Please restart the application manually.")
+	chatID := msg.Chat.ID
+		s.SendMessage(chatID, "Restart handler not configured. Please restart the application manually.")
 		return
 	}
 
 	s.mu.Lock()
-	waiting := s.waitingOTP
-	s.mu.Unlock()
-
-	if waiting {
-		s.SendMessage("<b>Already Waiting for OTP</b>\n\nI am already expecting an OTP (likely for startup). Please just send the 6-digit code directly.")
+	// Check if this specific user is waiting
+	if s.waitingOTP[msg.Chat.ID] {
+		s.SendMessage(msg.Chat.ID, "<b>Already Waiting for OTP</b>\n\nI am already expecting an OTP (likely for startup). Please just send the 6-digit code directly.")
 		return
 	}
 
 	s.mu.Lock()
-	s.waitingOTP = true
-	s.isRestartOTP = true
+	s.waitingOTP[msg.Chat.ID] = true
+	s.isRestartOTP[msg.Chat.ID] = true
 	s.mu.Unlock()
 
-	s.SendMessage("🔄 <b>Restarting Authentication</b>\n\nPlease open <b>EntradeX</b> app and send your 6-digit Smart OTP.")
+	s.SendMessage(msg.Chat.ID, "🔄 <b>Restarting Authentication</b>\n\nPlease open <b>EntradeX</b> app and send your 6-digit Smart OTP.")
 }
 
-func (s *BotService) handleTimeCommand() {
+func (s *BotService) handleTimeCommand(msg *tgbotapi.Message) {
 	now := time.Now()
 	
 	// Get Vietnam time using the correct location from vn package
@@ -685,7 +725,7 @@ func (s *BotService) handleTimeCommand() {
 		vnTime = now.In(loc)
 	}
 
-	msg := fmt.Sprintf(
+	respText := fmt.Sprintf(
 		"<b>System Time Status</b>\n\n"+
 			"<b>Server Time:</b> %s\n"+
 			"<b>Vietnam Time:</b> %s\n"+
@@ -694,38 +734,39 @@ func (s *BotService) handleTimeCommand() {
 		vnTime.Format("15:04:05 Mon 02/01"),
 		sessionStatus,
 	)
-	s.SendMessage(msg)
+	s.SendMessage(msg.Chat.ID, respText)
 }
 
 // handleRestartOTP handles OTP input for restart flow
-func (s *BotService) handleRestartOTP(otp string) {
+func (s *BotService) handleRestartOTP(chatID int64, otp string) {
 	// Reset OTP waiting state
 	defer func() {
 		s.mu.Lock()
-		s.waitingOTP = false
-		s.isRestartOTP = false
+		delete(s.waitingOTP, chatID)
+		delete(s.isRestartOTP, chatID)
 		s.mu.Unlock()
 	}()
 
-	s.SendMessage("Smart OTP received! Refreshing trading token...")
+	s.SendMessage(chatID, "Smart OTP received! Refreshing trading token...")
 
 	// Call restart handler
 	ctx := context.Background()
 	if err := s.restartHandler.OnRestart(ctx, otp); err != nil {
 		logger.Error().Err(err).Msg("Restart authentication failed")
-		s.SendMessage(fmt.Sprintf("<b>Restart Failed</b>\n\nError: %s\n\nPlease try /restart again or restart the application.", err.Error()))
+		s.SendMessage(chatID, fmt.Sprintf("<b>Restart Failed</b>\n\nError: %s\n\nPlease try /restart again or restart the application.", err.Error()))
 		return
 	}
 
-	s.SendMessage("<b>Trading token refreshed successfully!</b>\n\nBot is ready for trading operations.")
+	s.SendMessage(chatID, "<b>Trading token refreshed successfully!</b>\n\nBot is ready for trading operations.")
 }
 
 // handleTrainCommand handles /train <SYMBOL> command
 // Triggers ML model training (backfill + train) for a symbol
-func (s *BotService) handleTrainCommand(text string) {
-	args := strings.Fields(text)
+func (s *BotService) handleTrainCommand(msg *tgbotapi.Message) {
+	chatID := msg.Chat.ID
+	args := strings.Fields(msg.Text)
 	if len(args) < 2 {
-		s.SendMessage(
+		s.SendMessage(chatID,
 			"<b>Usage:</b> /train &lt;SYMBOL&gt;\n\n" +
 			"<b>Example:</b> /train VCB\n\n" +
 			"This will backfill features and train the AI model. " +
@@ -737,13 +778,13 @@ func (s *BotService) handleTrainCommand(text string) {
 	
 	// Optional: Check if ML client is configured
 	if s.mlClient == nil {
-		s.SendMessage("<b>Error:</b> ML service not configured. Please contact administrator.")
+		s.SendMessage(chatID, "<b>Error:</b> ML service not configured. Please contact administrator.")
 		logger.Error().Msg("ML client not set in BotService")
 		return
 	}
 	
 	// Send "processing" message
-	s.SendMessage(fmt.Sprintf(
+	s.SendMessage(chatID, fmt.Sprintf(
 		"<b>Training AI Model</b>\n\n" +
 		"Symbol: <code>%s</code>\n\n" +
 		"This may take 2-5 minutes...\n\n" +
@@ -751,7 +792,7 @@ func (s *BotService) handleTrainCommand(text string) {
 		symbol))
 
 	// Call ML service in background to avoid blocking
-	go func() {
+	go func(cid int64) {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		defer cancel()
 
@@ -761,7 +802,7 @@ func (s *BotService) handleTrainCommand(text string) {
 
 		if err != nil {
 			logger.Error().Err(err).Str("symbol", symbol).Msg("TriggerTraining gRPC failed")
-			s.SendMessage(fmt.Sprintf(
+			s.SendMessage(cid, fmt.Sprintf(
 				"<b>Training Failed</b>\n\n" +
 				"Symbol: <code>%s</code>\n" +
 				"Error: %s\n\n" +
@@ -773,7 +814,7 @@ func (s *BotService) handleTrainCommand(text string) {
 		}
 
 		if !resp.Success {
-			s.SendMessage(fmt.Sprintf(
+			s.SendMessage(cid, fmt.Sprintf(
 				"<b>Training Failed</b>\n\n" +
 				"Symbol: <code>%s</code>\n" +
 				"Error: %s",
@@ -782,21 +823,21 @@ func (s *BotService) handleTrainCommand(text string) {
 		}
 
 		// Success!
-		s.SendMessage(fmt.Sprintf(
+		s.SendMessage(cid, fmt.Sprintf(
 			"<b>Training Complete!</b>\n\n" +
 			"Symbol: <code>%s</code>\n" +
 			"Model Version: <code>%s</code>\n\n" +
 			"The AI model is now ready for predictions.",
 			symbol, resp.ModelVersion))
-	}()
+	}(chatID)
 }
 
 // handleImportCommand handles /import <SYMBOL> command
 // Initiates the file upload flow for importing historical data
-func (s *BotService) handleImportCommand(text string) {
-	args := strings.Fields(text)
+func (s *BotService) handleImportCommand(msg *tgbotapi.Message) {
+	args := strings.Fields(msg.Text)
 	if len(args) < 2 {
-		s.SendMessage(
+		s.SendMessage(msg.Chat.ID,
 			"<b>Usage:</b> /import &lt;SYMBOL&gt;\n\n" +
 			"<b>Example:</b> /import VCB\n\n" +
 			"After running this command, upload your Excel file from Simplize.")
@@ -807,7 +848,7 @@ func (s *BotService) handleImportCommand(text string) {
 	
 	// Validate symbol format (basic check for Vietnamese stock symbols)
 	if len(symbol) < 2 || len(symbol) > 10 {
-		s.SendMessage("Invalid symbol format. Please use 2-10 uppercase letters.")
+		s.SendMessage(msg.Chat.ID, "Invalid symbol format. Please use 2-10 uppercase letters.")
 		return
 	}
 
@@ -819,7 +860,7 @@ func (s *BotService) handleImportCommand(text string) {
 	}
 	s.mu.Unlock()
 
-	s.SendMessage(fmt.Sprintf(
+	s.SendMessage(msg.Chat.ID, fmt.Sprintf(
 		"<b>Import Historical Data</b>\n\n" +
 		"Symbol: <code>%s</code>\n\n" +
 		"Please upload the Excel file (.xlsx) from Simplize.\n\n" +
@@ -837,10 +878,11 @@ func (s *BotService) handleFileUpload(msg *tgbotapi.Message) {
 
 	// Step 1: Get file from Telegram
 	fileID := msg.Document.FileID
+	chatID := msg.Chat.ID
 	file, err := s.bot.GetFile(tgbotapi.FileConfig{FileID: fileID})
 	if err != nil {
 		logger.Error().Err(err).Msg("Failed to get file info from Telegram")
-		s.SendMessage(fmt.Sprintf("<b>Error:</b> Failed to get file information: %v", err))
+		s.SendMessage(chatID, fmt.Sprintf("<b>Error:</b> Failed to get file information: %v", err))
 		s.resetImportState()
 		return
 	}
@@ -850,7 +892,7 @@ func (s *BotService) handleFileUpload(msg *tgbotapi.Message) {
 	resp, err := http.Get(fileURL)
 	if err != nil {
 		logger.Error().Err(err).Msg("Failed to download file")
-		s.SendMessage(fmt.Sprintf("<b>Error:</b> Failed to download file: %v", err))
+		s.SendMessage(chatID, fmt.Sprintf("<b>Error:</b> Failed to download file: %v", err))
 		s.resetImportState()
 		return
 	}
@@ -863,7 +905,7 @@ func (s *BotService) handleFileUpload(msg *tgbotapi.Message) {
 	outFile, err := os.Create(filePath)
 	if err != nil {
 		logger.Error().Err(err).Msg("Failed to create temp file")
-		s.SendMessage(fmt.Sprintf("<b>Error:</b> Failed to save file: %v", err))
+		s.SendMessage(chatID, fmt.Sprintf("<b>Error:</b> Failed to save file: %v", err))
 		s.resetImportState()
 		return
 	}
@@ -872,7 +914,7 @@ func (s *BotService) handleFileUpload(msg *tgbotapi.Message) {
 	_, err = io.Copy(outFile, resp.Body)
 	if err != nil {
 		logger.Error().Err(err).Msg("Failed to write file contents")
-		s.SendMessage(fmt.Sprintf("<b>Error:</b> Failed to write file: %v", err))
+		s.SendMessage(chatID, fmt.Sprintf("<b>Error:</b> Failed to write file: %v", err))
 		os.Remove(filePath) // Clean up
 		s.resetImportState()
 		return
@@ -896,7 +938,7 @@ func (s *BotService) handleFileUpload(msg *tgbotapi.Message) {
 		msg.Document.FileName,
 		msg.Document.FileSize/1024)
 	
-	reply := tgbotapi.NewMessage(s.chatID, msgText)
+	reply := tgbotapi.NewMessage(msg.Chat.ID, msgText)
 	reply.ParseMode = "HTML"
 	reply.ReplyMarkup = keyboard
 	s.bot.Send(reply)
@@ -923,10 +965,12 @@ func (s *BotService) handleCallbackQuery(query *tgbotapi.CallbackQuery) {
 		return
 	}
 
+	chatID := query.Message.Chat.ID
+
 	parts := strings.SplitN(data, "_", 3)
 	if len(parts) < 3 {
 		logger.Error().Str("data", data).Msg("Invalid callback data format")
-		s.SendMessage("<b>Error:</b> Invalid callback data")
+		s.SendMessage(chatID, "<b>Error:</b> Invalid callback data")
 		return
 	}
 
@@ -940,13 +984,13 @@ func (s *BotService) handleCallbackQuery(query *tgbotapi.CallbackQuery) {
 
 	if symbol == "" {
 		logger.Error().Msg("Symbol not found in import state")
-		s.SendMessage("<b>Error:</b> Import session expired. Please start again with /import.")
+		s.SendMessage(chatID, "<b>Error:</b> Import session expired. Please start again with /import.")
 		return
 	}
 
 	// Handle "Other" provider
 	if provider == "other" {
-		s.SendMessage(
+		s.SendMessage(chatID,
 			"<b>Unsupported Provider</b>\n\n" +
 			"Sorry, we currently only support Simplize data files.\n\n" +
 			"If you need support for other providers, please contact the administrator.")
@@ -962,16 +1006,16 @@ func (s *BotService) handleCallbackQuery(query *tgbotapi.CallbackQuery) {
 
 	// Handle "Simplize" provider
 	if provider == "simplize" {
-		s.handleSimplizeImport(symbol, filePath)
+		s.handleSimplizeImport(chatID, symbol, filePath)
 	}
 }
 
 // handleSimplizeImport executes the XLSX import tool for Simplize files
-func (s *BotService) handleSimplizeImport(symbol, filePath string) {
+func (s *BotService) handleSimplizeImport(chatID int64, symbol, filePath string) {
 	logger.Info().Str("symbol", symbol).Str("path", filePath).Msg("Starting Simplize import")
 
 	// Send "processing" message
-	s.SendMessage(fmt.Sprintf(
+	s.SendMessage(chatID, fmt.Sprintf(
 		"<b>Importing Data</b>\n\n" +
 		"Symbol: <code>%s</code>\n" +
 		"Provider: Simplize\n\n" +
@@ -1001,7 +1045,7 @@ func (s *BotService) handleSimplizeImport(symbol, filePath string) {
 
 	if err != nil {
 		logger.Error().Err(err).Str("output", string(output)).Msg("Import failed")
-		s.SendMessage(fmt.Sprintf(
+		s.SendMessage(chatID, fmt.Sprintf(
 			"<b>Import Failed</b>\n\n" +
 			"Symbol: <code>%s</code>\n" +
 			"Error: %s\n\n" +
@@ -1012,7 +1056,7 @@ func (s *BotService) handleSimplizeImport(symbol, filePath string) {
 
 	// Success!
 	logger.Info().Str("symbol", symbol).Msg("Import completed successfully")
-	s.SendMessage(fmt.Sprintf(
+	s.SendMessage(chatID, fmt.Sprintf(
 		"<b>Import Complete!</b>\n\n" +
 		"Symbol: <code>%s</code>\n\n" +
 		"Historical data has been imported successfully.\n\n" +
@@ -1023,10 +1067,11 @@ func (s *BotService) handleSimplizeImport(symbol, filePath string) {
 
 // handlePredictCommand handles /predict <SYMBOL> command
 // Requests ML predictions and displays buy recommendations with T+2 settlement
-func (s *BotService) handlePredictCommand(text string) {
-	args := strings.Fields(text)
+func (s *BotService) handlePredictCommand(msg *tgbotapi.Message) {
+	chatID := msg.Chat.ID
+	args := strings.Fields(msg.Text)
 	if len(args) < 2 {
-		s.SendMessage(
+		s.SendMessage(chatID,
 			"<b>Usage:</b> /predict &lt;SYMBOL&gt;\n\n" +
 			"<b>Example:</b> /predict VCI\n\n" +
 			"Get ML predictions and buy recommendations for a stock.\n" +
@@ -1038,7 +1083,7 @@ func (s *BotService) handlePredictCommand(text string) {
 
 	// Check if ML client is configured
 	if s.mlClient == nil {
-		s.SendMessage("<b>Error:</b> ML service not configured. Please contact administrator.")
+		s.SendMessage(chatID, "<b>Error:</b> ML service not configured. Please contact administrator.")
 		logger.Error().Msg("ML client not set in BotService")
 		return
 	}
@@ -1057,7 +1102,7 @@ func (s *BotService) handlePredictCommand(text string) {
 
 	if err != nil {
 		logger.Error().Err(err).Str("symbol", symbol).Msg("Predict gRPC failed")
-		s.SendMessage(fmt.Sprintf(
+		s.SendMessage(chatID, fmt.Sprintf(
 			"<b>Prediction Failed</b>\n\n" +
 			"Symbol: <code>%s</code>\n" +
 			"Error: %s\n\n" +
@@ -1069,7 +1114,7 @@ func (s *BotService) handlePredictCommand(text string) {
 	}
 
 	if !resp.Success {
-		s.SendMessage(fmt.Sprintf(
+		s.SendMessage(chatID, fmt.Sprintf(
 			"<b>Prediction Failed</b>\n\n" +
 			"Symbol: <code>%s</code>\n" +
 			"Error: %s\n\n" +
@@ -1141,34 +1186,34 @@ func (s *BotService) handlePredictCommand(text string) {
 	}
 
 	// Build message
-	var msg strings.Builder
-	msg.WriteString(fmt.Sprintf("<b>🤖 ML Prediction: %s</b>\n\n", symbol))
-	msg.WriteString(confidenceText + "\n\n")
+	var msgBuilder strings.Builder
+	msgBuilder.WriteString(fmt.Sprintf("<b>🤖 ML Prediction: %s</b>\n\n", symbol))
+	msgBuilder.WriteString(confidenceText + "\n\n")
 
 	if hasMultiHorizon {
-		msg.WriteString("<b>Multi-Horizon Forecasts:</b>\n")
+		msgBuilder.WriteString("<b>Multi-Horizon Forecasts:</b>\n")
 		// Sort predictions by horizon
 		// (Assume sorted or just print)
 		for _, p := range resp.Predictions {
-			msg.WriteString(fmt.Sprintf("<b>%d-Day Horizon:</b>\n", p.Horizon))
-			msg.WriteString(fmt.Sprintf("  • Expected (p50): %+.1f%%\n", p.P50*100))
-			msg.WriteString(fmt.Sprintf("  • Range: [%+.1f%%, %+.1f%%]\n", p.P10*100, p.P90*100))
-			msg.WriteString(fmt.Sprintf("  • Conf: %.0f%%\n\n", p.Confidence*100))
+			msgBuilder.WriteString(fmt.Sprintf("<b>%d-Day Horizon:</b>\n", p.Horizon))
+			msgBuilder.WriteString(fmt.Sprintf("  • Expected (p50): %+.1f%%\n", p.P50*100))
+			msgBuilder.WriteString(fmt.Sprintf("  • Range: [%+.1f%%, %+.1f%%]\n", p.P10*100, p.P90*100))
+			msgBuilder.WriteString(fmt.Sprintf("  • Conf: %.0f%%\n\n", p.Confidence*100))
 		}
 	} else {
 		// Legacy display
-		msg.WriteString("<b>Predicted Returns (5-day):</b>\n")
-		msg.WriteString(fmt.Sprintf("  • Pessimistic (p10): %+.1f%%\n", resp.P10*100))
-		msg.WriteString(fmt.Sprintf("  • Expected (p50): %+.1f%%\n", resp.P50*100))
-		msg.WriteString(fmt.Sprintf("  • Optimistic (p90): %+.1f%%\n\n", resp.P90*100))
+		msgBuilder.WriteString("<b>Predicted Returns (5-day):</b>\n")
+		msgBuilder.WriteString(fmt.Sprintf("  • Pessimistic (p10): %+.1f%%\n", resp.P10*100))
+		msgBuilder.WriteString(fmt.Sprintf("  • Expected (p50): %+.1f%%\n", resp.P50*100))
+		msgBuilder.WriteString(fmt.Sprintf("  • Optimistic (p90): %+.1f%%\n\n", resp.P90*100))
 	}
 
-	msg.WriteString(fmt.Sprintf("<b>💡 Recommendation:</b> %s\n", recommendation))
-	msg.WriteString(entryAdvice)
-	msg.WriteString(fmt.Sprintf("<b>Settlement Date:</b> %s (T+2)\n\n",
+	msgBuilder.WriteString(fmt.Sprintf("<b>💡 Recommendation:</b> %s\n", recommendation))
+	msgBuilder.WriteString(entryAdvice)
+	msgBuilder.WriteString(fmt.Sprintf("<b>Settlement Date:</b> %s (T+2)\n\n",
 		settlement.SettlementDate.Format("2006-01-02 Mon")))
 
-	msg.WriteString(fmt.Sprintf("<i>Model version: %s</i>", resp.ModelVersion))
+	msgBuilder.WriteString(fmt.Sprintf("<i>Model version: %s</i>", resp.ModelVersion))
 
-	s.SendMessage(msg.String())
+	s.SendMessage(chatID, msgBuilder.String())
 }
