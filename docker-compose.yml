@@ -1,0 +1,33 @@
+services:
+  app:
+    image: nonobeam/golang-stock-trading:latest
+    container_name: gst-bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "4081:4081"
+    volumes:
+      - ./logs:/app/logs
+      - ./tmp:/tmp
+    depends_on:
+      - ml-service
+    networks:
+      - shared-net
+
+  ml-service:
+    image: nonobeam/golang-stock-trading-ml:latest
+    container_name: gst-ml-service
+    restart: unless-stopped
+    env_file:
+      - .env.ml
+    ports:
+      - "50055:50055"
+    volumes:
+      - ./ml-service/models/saved:/app/models/saved
+    networks:
+      - shared-net
+
+networks:
+  shared-net:
+    external: true

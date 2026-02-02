@@ -1,0 +1,141 @@
+syntax = "proto3";
+
+package ml;
+
+option go_package = "github.com/nonobeam/golang-stock-trading/proto/ml";
+
+// ML Prediction Service
+// Provides stock price prediction using XGBoost quantile regression models
+service MLPredictionService {
+    // Generate prediction for a stock on a specific date
+    // Returns three quantile predictions (p10, p50, p90)
+    rpc Predict(PredictRequest) returns (PredictResponse);
+    
+    // Train or retrain models for a specific stock
+    // Returns training results and validation metrics
+    rpc TrainModel(TrainModelRequest) returns (TrainModelResponse);
+    
+    // Get information about currently deployed models
+    // Returns model metadata including version, metrics, and training dates
+    rpc GetModelInfo(ModelInfoRequest) returns (ModelInfoResponse);
+    
+    // Simple health check
+    rpc Ping(PingRequest) returns (PingResponse);
+    
+    // Trigger training automation (backfill + train)
+    // Simplified interface for Telegram bot automation
+    rpc TriggerTraining(TriggerTrainingRequest) returns (TriggerTrainingResponse);
+}
+
+message PingRequest {
+    string message = 1; // Optional message (e.g. "ping")
+}
+
+message PingResponse {
+    string message = 1; // "pong"
+    string server_time = 2;
+    string version = 3;
+}
+
+// Request message for prediction
+message PredictRequest {
+    string ticker = 1;              // Stock ticker symbol (e.g., "HPG")
+    string date = 2;                // Date for prediction in YYYY-MM-DD format
+    map<string, double> features = 3; // Optional: pre-calculated features (if empty, service calculates them)
+}
+
+// Response message for prediction
+message PredictResponse {
+    double p10 = 1;                 // 10th percentile prediction (downside risk) - Horizon 1
+    double p50 = 2;                 // 50th percentile prediction (expected return) - Horizon 1
+    double p90 = 3;                 // 90th percentile prediction (upside potential) - Horizon 1
+    double confidence = 4;          // Confidence score (0-1) - Horizon 1
+    string model_version = 5;       // Version identifier of models used
+    bool success = 6;               // Whether prediction succeeded
+    string error_message = 7;       // Error message if success=false
+    
+    repeated HorizonPrediction predictions = 8; // Multi-horizon predictions
+}
+
+message HorizonPrediction {
+    int32 horizon = 1;              // Forecast horizon (days)
+    double p10 = 2;                 // 10th percentile
+    double p50 = 3;                 // 50th percentile
+    double p90 = 4;                 // 90th percentile
+    double confidence = 5;          // Confidence score
+}
+
+// Request message for model training
+message TrainModelRequest {
+    string ticker = 1;              // Stock ticker to train models for
+    int32 days = 2;                 // Number of historical days to use for training (default: 252)
+    bool force = 3;                 // Force retrain even if recent models exist
+    bool validate_only = 4;         // Only validate existing models, don't retrain
+}
+
+// Response message for model training
+message TrainModelResponse {
+    bool success = 1;               // Whether training succeeded
+    string model_version = 2;       // Version identifier of newly trained models
+    double mae_validation = 3;      // Mean Absolute Error on validation set
+    double ic_validation = 4;       // Information Coefficient on validation set
+    int32 train_days = 5;           // Actual number of days used for training
+    string train_start_date = 6;    // Start date of training period
+    string train_end_date = 7;      // End date of training period
+    string error_message = 8;       // Error message if success=false
+    ModelMetrics metrics = 9;       // Detailed training metrics
+}
+
+// Request message for model info
+message ModelInfoRequest {
+    string ticker = 1;              // Stock ticker to get model info for
+    bool include_all_versions = 2;  // Include all versions or only production models
+}
+
+// Response message for model info
+message ModelInfoResponse {
+    repeated ModelInfo models = 1;  // List of model information
+    bool success = 2;               // Whether request succeeded
+    string error_message = 3;       // Error message if success=false
+}
+
+// Model information
+message ModelInfo {
+    string model_id = 1;            // Unique model identifier
+    string ticker = 2;              // Stock ticker
+    double quantile = 3;            // Quantile level (0.10, 0.50, or 0.90)
+    string training_date = 4;       // Date when model was trained
+    string train_start_date = 5;    // Start of training period
+    string train_end_date = 6;      // End of training period
+    int32 train_days = 7;           // Number of training days
+    bool in_production = 8;         // Whether this model is currently in production
+    string file_path = 9;           // Path to saved model file
+    map<string, double> hyperparameters = 10; // Model hyperparameters
+    ModelMetrics metrics = 11;      // Validation metrics
+    int32 horizon = 12;             // Prediction horizon (1, 5, 10 etc.)
+}
+
+// Detailed model metrics
+message ModelMetrics {
+    double mae = 1;                 // Mean Absolute Error
+    double rmse = 2;                // Root Mean Square Error
+    double ic = 3;                  // Information Coefficient (prediction-outcome correlation)
+    double directional_accuracy = 4; // Percentage of correct direction predictions
+    double p10_calibration = 5;     // Actual percentage of outcomes below p10 (should be ~10%)
+    double p90_calibration = 6;     // Actual percentage of outcomes above p90 (should be ~10%)
+    int32 val_samples = 7;          // Number of validation samples
+    int32 horizon = 8;              // Horizon for these metrics
+}
+
+// Request for automated training trigger
+message TriggerTrainingRequest {
+    string ticker = 1;              // Stock ticker to train
+}
+
+// Response for automated training trigger  
+message TriggerTrainingResponse {
+    bool success = 1;               // Whether training completed successfully
+    string model_version = 2;       // Version of newly trained model
+    string error_message = 3;       // Error message if success=false
+    string status = 4;              // Status: \"complete\", \"error\"
+}

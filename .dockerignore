@@ -1,0 +1,45 @@
+# Git
+.git
+.gitignore
+.github
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Documentation
+*.md
+docs/
+AGENTS.md
+GST_PROJECT_PROPOSAL.md
+PHASE_STATUS.md
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Test files
+*_test.go
+test/
+
+# OpenSpec
+openspec/
+
+# Agent files
+.agent/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+*.exe
+*.dll
+*.so
+*.dylib
+bin/
+dist/
