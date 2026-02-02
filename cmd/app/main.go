@@ -228,9 +228,15 @@ func main() {
 					}
 
 					// Success!
-					tradingTokenReceived = true
-					logger.Info().Int("expiresIn", tradingTokenResp.ExpiresIn).Msg("Trading token received from API")
-					telegramBot.Broadcast("Trading token received successfully!")
+				tradingTokenReceived = true
+				logger.Info().Int("expiresIn", tradingTokenResp.ExpiresIn).Msg("Trading token received from API")
+				
+				// Calculate expiration time
+				expirationTime := time.Now().Add(time.Duration(tradingTokenResp.ExpiresIn) * time.Second)
+				expirationStr := expirationTime.Format("2006-01-02 15:04:05")
+				durationStr := formatDuration(tradingTokenResp.ExpiresIn)
+				
+				telegramBot.Broadcast(fmt.Sprintf("✅ <b>Trading token received successfully!</b>\n\n⏱ <b>Expires in:</b> %s\n📅 <b>Expiration time:</b> %s", durationStr, expirationStr))
 
 					// Initialize APIs
 					infoAPI := api.NewInfoAPI(authService.GetClient())
@@ -375,10 +381,27 @@ func initDatabase(cfg *config.Config) (*sql.DB, error) {
 	return database.DB, nil
 }
 
+
 // getEnv gets environment variable with fallback
 func getEnv(key, fallback string) string {
 	if value := os.Getenv(key); value != "" {
 		return value
 	}
 	return fallback
+}
+
+// formatDuration converts seconds to human-readable duration string
+func formatDuration(seconds int) string {
+	duration := time.Duration(seconds) * time.Second
+	hours := int(duration.Hours())
+	minutes := int(duration.Minutes()) % 60
+	
+	if hours > 0 && minutes > 0 {
+		return fmt.Sprintf("%d hours %d minutes", hours, minutes)
+	} else if hours > 0 {
+		return fmt.Sprintf("%d hours", hours)
+	} else if minutes > 0 {
+		return fmt.Sprintf("%d minutes", minutes)
+	}
+	return fmt.Sprintf("%d seconds", seconds)
 }
