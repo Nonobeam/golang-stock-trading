@@ -166,7 +166,6 @@ func Load() (*Config, error) {
 		RedisPort:     viper.GetInt("REDIS_PORT"),
 		RedisPassword: viper.GetString("REDIS_PASSWORD"),
 		RedisDB:       viper.GetInt("REDIS_DB"),
-		RedisOTPKey:   viper.GetString("REDIS_OTP_KEY"),
 		RedisOTPTTL:   viper.GetInt("REDIS_OTP_TTL"),
 	}
 

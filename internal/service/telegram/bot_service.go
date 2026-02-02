@@ -239,13 +239,7 @@ func (s *BotService) handleCommand(msg *tgbotapi.Message) {
 	case "editposition":
 		s.handleEditPositionCommand(msg)
 	case "position":
-		args := strings.Fields(text)
-		if len(args) < 2 {
-			s.SendMessage(chatID, "Usage: /position &lt;symbol&gt;\nExample: /position VNM")
-			return
-		}
-		symbol := strings.ToUpper(args[1])
-		s.SendMessage(chatID, fmt.Sprintf("<b>Position: %s</b>\n\n<i>Feature coming soon.</i>", symbol))
+		s.handlePositionDetailCommand(msg)
 	case "restart":
 		s.handleRestartCommand(msg)
 	}
