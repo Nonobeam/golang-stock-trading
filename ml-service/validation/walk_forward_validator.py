@@ -18,11 +18,11 @@ import numpy as np
 import pandas as pd
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
-import psycopg2
-from psycopg2.extras import execute_values
+import psycopg
+from psycopg.rows import dict_row
 from scipy import stats
 
-from ..config import DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD, DB_SCHEMA
+from config import DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD, DB_SCHEMA
 from .transaction_costs import calculate_fee_adjusted_return, ROUND_TRIP_COST
 
 
@@ -41,7 +41,7 @@ class WalkForwardValidator:
     def __init__(self, 
                  train_window_days: int = 252,
                  test_window_days: int = 20,
-                 db_conn: Optional[psycopg2.extensions.connection] = None):
+                 db_conn: Optional[psycopg.Connection] = None):
         """
         Initialize walk-forward validator.
         
@@ -58,10 +58,10 @@ class WalkForwardValidator:
     def _get_connection(self):
         """Get or create database connection."""
         if self.db_conn is None:
-            self.db_conn = psycopg2.connect(
+            self.db_conn = psycopg.connect(
                 host=DB_HOST,
                 port=DB_PORT,
-                database=DB_NAME,
+                dbname=DB_NAME,
                 user=DB_USER,
                 password=DB_PASSWORD
             )

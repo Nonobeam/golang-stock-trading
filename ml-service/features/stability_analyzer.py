@@ -19,10 +19,10 @@ import numpy as np
 import pandas as pd
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
-import psycopg2
-from psycopg2.extras import execute_values
+import psycopg
+from psycopg.rows import dict_row
 
-from ..config import DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD, DB_SCHEMA
+from config import DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD, DB_SCHEMA
 
 
 # Stability thresholds
@@ -46,7 +46,7 @@ class FeatureStabilityAnalyzer:
     - Rank position changes over time
     """
     
-    def __init__(self, db_conn: Optional[psycopg2.extensions.connection] = None):
+    def __init__(self, db_conn: Optional[psycopg.Connection] = None):
         """
         Initialize feature stability analyzer.
         
@@ -59,10 +59,10 @@ class FeatureStabilityAnalyzer:
     def _get_connection(self):
         """Get or create database connection."""
         if self.db_conn is None:
-            self.db_conn = psycopg2.connect(
+            self.db_conn = psycopg.connect(
                 host=DB_HOST,
                 port=DB_PORT,
-                database=DB_NAME,
+                dbname=DB_NAME,
                 user=DB_USER,
                 password=DB_PASSWORD
             )

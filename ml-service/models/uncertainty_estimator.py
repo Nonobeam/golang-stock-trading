@@ -21,7 +21,7 @@ from typing import Dict, List, Optional
 import xgboost as xgb
 from sklearn.utils import resample
 
-from ..config import QUANTILES, HYPERPARAMETERS, BASE_DIR
+from config import QUANTILES, HYPERPARAMETERS, BASE_DIR
 
 
 class UncertaintyEstimator:

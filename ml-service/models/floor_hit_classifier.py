@@ -20,11 +20,11 @@ import pandas as pd
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 import xgboost as xgb
-import psycopg2
+import psycopg
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, roc_auc_score
 
-from ..config import DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD, DB_SCHEMA, BASE_DIR
+from config import DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD, DB_SCHEMA, BASE_DIR
 
 
 # Circuit breaker limits by exchange
@@ -49,7 +49,7 @@ class FloorHitClassifier:
     
     def __init__(self, 
                  exchange: str = 'HOSE',
-                 db_conn: Optional[psycopg2.extensions.connection] = None):
+                 db_conn: Optional[psycopg.Connection] = None):
         """
         Initialize floor-hit classifier.
         
@@ -70,10 +70,10 @@ class FloorHitClassifier:
     def _get_connection(self):
         """Get or create database connection."""
         if self.db_conn is None:
-            self.db_conn = psycopg2.connect(
+            self.db_conn = psycopg.connect(
                 host=DB_HOST,
                 port=DB_PORT,
-                database=DB_NAME,
+                dbname=DB_NAME,
                 user=DB_USER,
                 password=DB_PASSWORD
             )
