@@ -219,7 +219,31 @@ func (s *BotService) handleCommand(msg *tgbotapi.Message) {
 			return
 		}
 		symbol := strings.ToUpper(args[1])
-		s.SendMessage(chatID, fmt.Sprintf("Added <code>%s</code> to watchlist\n\n<i>Feature fully coming soon.</i>", symbol))
+		
+		// Get user context
+		user, err := s.getUserContext(chatID)
+		if err != nil {
+			logger.Error().Err(err).Int64("chatID", chatID).Msg("Failed to get user context")
+			s.SendMessage(chatID, "Failed to add stock to watchlist. Please try again.")
+			return
+		}
+		
+		// Check if watchlist repository is available
+		if s.watchlistRepo == nil {
+			s.SendMessage(chatID, "Watchlist feature not available. Please contact administrator.")
+			return
+		}
+		
+		// Add to watchlist
+		ctx := context.Background()
+		err = s.watchlistRepo.Create(ctx, user.UserID, symbol)
+		if err != nil {
+			logger.Error().Err(err).Str("symbol", symbol).Int64("userID", user.UserID).Msg("Failed to add to watchlist")
+			s.SendMessage(chatID, fmt.Sprintf("Failed to add <code>%s</code> to watchlist: %s", symbol, err.Error()))
+			return
+		}
+		
+		s.SendMessage(chatID, fmt.Sprintf("✅ Added <code>%s</code> to your watchlist!\n\nUse /status to view all tracked stocks.", symbol))
 	case "unwatch":
 		args := strings.Fields(text)
 		if len(args) < 2 {
@@ -227,7 +251,31 @@ func (s *BotService) handleCommand(msg *tgbotapi.Message) {
 			return
 		}
 		symbol := strings.ToUpper(args[1])
-		s.SendMessage(chatID, fmt.Sprintf("Removed <code>%s</code> from watchlist\n\n<i>Feature fully coming soon.</i>", symbol))
+		
+		// Get user context
+		user, err := s.getUserContext(chatID)
+		if err != nil {
+			logger.Error().Err(err).Int64("chatID", chatID).Msg("Failed to get user context")
+			s.SendMessage(chatID, "Failed to remove stock from watchlist. Please try again.")
+			return
+		}
+		
+		// Check if watchlist repository is available
+		if s.watchlistRepo == nil {
+			s.SendMessage(chatID, "Watchlist feature not available. Please contact administrator.")
+			return
+		}
+		
+		// Remove from watchlist
+		ctx := context.Background()
+		err = s.watchlistRepo.Delete(ctx, user.UserID, symbol)
+		if err != nil {
+			logger.Error().Err(err).Str("symbol", symbol).Int64("userID", user.UserID).Msg("Failed to remove from watchlist")
+			s.SendMessage(chatID, fmt.Sprintf("Failed to remove <code>%s</code> from watchlist: %s", symbol, err.Error()))
+			return
+		}
+		
+		s.SendMessage(chatID, fmt.Sprintf("🗑 Removed <code>%s</code> from your watchlist.", symbol))
 	case "risk":
 		s.handleRiskCommand(msg)
 	case "limits":
