@@ -730,11 +730,12 @@ func (s *BotService) handleRestartCommand(msg *tgbotapi.Message) {
 	s.mu.Lock()
 	// Check if this specific user is waiting
 	if s.waitingOTP[msg.Chat.ID] {
+		s.mu.Unlock() // CRITICAL: Unlock before returning!
 		s.SendMessage(msg.Chat.ID, "<b>Already Waiting for OTP</b>\n\nI am already expecting an OTP (likely for startup). Please just send the 6-digit code directly.")
 		return
 	}
 
-	s.mu.Lock()
+	// Set waiting state (mutex already locked above)
 	s.waitingOTP[msg.Chat.ID] = true
 	s.isRestartOTP[msg.Chat.ID] = true
 	s.mu.Unlock()

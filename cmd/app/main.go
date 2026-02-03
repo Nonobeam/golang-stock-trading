@@ -126,12 +126,9 @@ func main() {
 	// === Initialize Redis ===
 	redisClient, err := redis.NewClient(cfg)
 	if err != nil {
-		logger.Error().Err(err).Msg("Failed to connect to Redis")
-		// Continue without Redis - will fall back to Telegram only
+		logger.Fatal().Err(err).Msg("Failed to connect to Redis - Redis is mandatory for caching")
 	}
-	if redisClient != nil {
-		defer redisClient.Close()
-	}
+	defer redisClient.Close()
 
 	// === Initialize OTP Service ===
 	otpService := otp.NewService(telegramBot)
@@ -182,21 +179,19 @@ func main() {
 				var tradingTokenReceived bool
 
 				// Check if we have a valid trading token in Redis first
-				if redisClient != nil {
-					cachedToken, err := redisClient.GetTradingToken(ctx, defaultUserID)
-					if err == nil && cachedToken != "" {
-						logger.Info().Msg("Found cached trading token in Redis")
-						authService.SetTradingToken(cachedToken)
-						tradingTokenReceived = true
+				cachedToken, err := redisClient.GetTradingToken(ctx, defaultUserID)
+				if err == nil && cachedToken != "" {
+					logger.Info().Msg("Found cached trading token in Redis")
+					authService.SetTradingToken(cachedToken)
+					tradingTokenReceived = true
 
-						// Initialize APIs
-						infoAPI := api.NewInfoAPI(authService.GetClient())
-						tradingAPI := api.NewTradingAPI(authService.GetClient(), authService.GetTradingTokenValue())
+					// Initialize APIs
+					infoAPI := api.NewInfoAPI(authService.GetClient())
+					tradingAPI := api.NewTradingAPI(authService.GetClient(), authService.GetTradingTokenValue())
 
-						logger.Info().Msg("Info and Trading APIs initialized with cached token")
-						_ = infoAPI
-						_ = tradingAPI
-					}
+					logger.Info().Msg("Info and Trading APIs initialized with cached token")
+					_ = infoAPI
+					_ = tradingAPI
 				}
 
 				for attempt := 1; attempt <= maxAttempts && !tradingTokenReceived; attempt++ {
