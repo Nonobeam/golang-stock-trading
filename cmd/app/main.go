@@ -360,7 +360,7 @@ func initDatabase(cfg *config.Config) (*sql.DB, error) {
 		Host:            getEnv("DB_HOST", "localhost"),
 		Port:            5432,
 		User:            getEnv("DB_USER", "trading_user"),
-		Password:        getEnv("DB_PASSWORD", "trading_pass"),
+		Password:        getEnv("DB_PASSWORD", ""),
 		DBName:          getEnv("DB_NAME", "trading"),
 		Schema:          getEnv("DB_SCHEMA", "public"),
 		SSLMode:         getEnv("DB_SSLMODE", "disable"),

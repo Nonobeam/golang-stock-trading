@@ -1,6 +1,9 @@
 package config
 
 import (
+	"crypto/rand"
+	"encoding/hex"
+	"fmt"
 	"strings"
 
 	"github.com/joho/godotenv"
@@ -109,7 +112,7 @@ func Load() (*Config, error) {
 
 	// API Server defaults
 	viper.SetDefault("APP_PORT", ":8080")
-	viper.SetDefault("JWT_SECRET", "dev-secret-change-in-production")
+	viper.SetDefault("JWT_SECRET", "")
 	viper.SetDefault("CORS_ORIGINS", "http://localhost:3000,http://localhost:5173")
 
 	// Redis defaults
@@ -169,6 +172,15 @@ func Load() (*Config, error) {
 		RedisOTPTTL:   viper.GetInt("REDIS_OTP_TTL"),
 	}
 
+	// Validate JWT secret: require explicit configuration in production
+	if cfg.JWTSecret == "" {
+		if cfg.AppEnv == "production" {
+			return nil, fmt.Errorf("JWT_SECRET must be set in production environment")
+		}
+		// Generate a random secret for development to avoid using a known default
+		cfg.JWTSecret = generateRandomSecret()
+	}
+
 	return cfg, nil
 }
 
@@ -177,4 +189,14 @@ func Get() *Config {
 		cfg, _ = Load()
 	}
 	return cfg
+}
+
+// generateRandomSecret creates a cryptographically random hex string for development use.
+func generateRandomSecret() string {
+	bytes := make([]byte, 32)
+	if _, err := rand.Read(bytes); err != nil {
+		// Fallback should never happen with crypto/rand
+		return "fallback-dev-secret-" + hex.EncodeToString(bytes[:8])
+	}
+	return hex.EncodeToString(bytes)
 }
