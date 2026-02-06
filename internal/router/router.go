@@ -39,6 +39,7 @@ func NewRouter(deps HandlerDeps, cfg *config.Config) *mux.Router {
 	api.HandleFunc("/market/quote/{symbol}", deps.MarketHandler.GetQuote).Methods("GET", "OPTIONS")
 
 	// Protected endpoints (require JWT auth)
+	// Use empty prefix to share /api base path while adding auth middleware
 	protected := api.PathPrefix("").Subrouter()
 	protected.Use(middleware.AuthMiddleware(cfg.JWTSecret))
 

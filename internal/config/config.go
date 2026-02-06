@@ -195,8 +195,7 @@ func Get() *Config {
 func generateRandomSecret() string {
 	bytes := make([]byte, 32)
 	if _, err := rand.Read(bytes); err != nil {
-		// Fallback should never happen with crypto/rand
-		return "fallback-dev-secret-" + hex.EncodeToString(bytes[:8])
+		panic("crypto/rand is unavailable: " + err.Error())
 	}
 	return hex.EncodeToString(bytes)
 }
