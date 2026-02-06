@@ -184,6 +184,233 @@ class PositionManager:
             if not self.db_connection:
                 conn.close()
                 
+    def calculate_average_cost(self, ticker: str, user_id: int = 1) -> Optional[float]:
+        """
+        Calculate weighted average cost from all position entries.
+        
+        This method queries the position_entries table to compute the true
+        average cost across all purchases of a stock.
+        
+        Args:
+            ticker: Stock symbol
+            user_id: User ID (default=1)
+            
+        Returns:
+            Weighted average cost per share, or None if no entries exist
+            
+        Formula:
+            avg_cost = SUM(shares × price) / SUM(shares)
+        """
+        conn = self.db_connection or get_connection()
+        try:
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                    SELECT 
+                        SUM(shares_purchased * entry_price) as total_cost,
+                        SUM(shares_purchased) as total_shares
+                    FROM position_entries
+                    WHERE ticker = %(ticker)s 
+                      AND user_id = %(user_id)s
+                """, {'ticker': ticker, 'user_id': user_id})
+                
+                row = cursor.fetchone()
+                if not row or row[0] is None or row[1] is None or row[1] == 0:
+                    return None
+                    
+                total_cost = float(row[0])
+                total_shares = int(row[1])
+                
+                avg_cost = total_cost / total_shares
+                logger.debug(f"Average cost for {ticker}: {avg_cost:.2f} ({total_shares} shares)")
+                return avg_cost
+        finally:
+            if not self.db_connection:
+                conn.close()
+                
+    def get_position_entries(self, ticker: str, user_id: int = 1) -> List[Dict]:
+        """
+        Retrieve all purchase entries for a ticker.
+        
+        Returns transaction history showing each individual purchase,
+        useful for entry quality analysis and detailed position reporting.
+        
+        Args:
+            ticker: Stock symbol
+            user_id: User ID (default=1)
+            
+        Returns:
+            List of entry dictionaries ordered by entry_date DESC
+            Each dict contains: entry_id, entry_date, entry_price, shares_purchased,
+                              entry_fee_paid, transaction_type
+        """
+        conn = self.db_connection or get_connection()
+        try:
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                    SELECT entry_id, entry_date, entry_price, shares_purchased,
+                           entry_fee_paid, transaction_type, created_at
+                    FROM position_entries
+                    WHERE ticker = %(ticker)s 
+                      AND user_id = %(user_id)s
+                    ORDER BY entry_date DESC
+                """, {'ticker': ticker, 'user_id': user_id})
+                
+                entries = []
+                for row in cursor.fetchall():
+                    entries.append({
+                        'entry_id': str(row[0]),
+                        'entry_date': row[1],
+                        'entry_price': float(row[2]),
+                        'shares_purchased': row[3],
+                        'entry_fee_paid': float(row[4]),
+                        'transaction_type': row[5],
+                        'created_at': row[6]
+                    })
+                return entries
+        finally:
+            if not self.db_connection:
+                conn.close()
+                
+    def check_buying_capacity(self, ticker: str, current_price: float, 
+                              account_value: float, user_id: int = 1) -> Dict:
+        """
+        Check remaining buying capacity for a ticker based on multiple constraints.
+        
+        Enforces three capacity limits:
+        1. Portfolio allocation: Maximum 20% of account value per position
+        2. Liquidity constraint: Maximum 1% of 20-day average daily volume
+        3. Total risk constraint: Total position risk ≤ 2% of account value
+        
+        Args:
+            ticker: Stock symbol
+            current_price: Current market price
+            account_value: Total account value
+            user_id: User ID (default=1)
+            
+        Returns:
+            Dictionary with capacity information:
+            {
+                'at_limit': bool,              # True if any limit reached
+                'current_position_value': float,
+                'max_position_value': float,    # 20% of account
+                'remaining_value_capacity': float,
+                'current_shares': int,
+                'max_shares_liquidity': int,    # 1% of 20-day avg volume
+                'remaining_share_capacity': int,
+                'max_buyable_shares': int,      # Minimum of all constraints
+                'limit_reason': str,            # Which limit is binding
+                'total_risk': float,            # Current + proposed risk
+                'max_risk_allowed': float       # 2% of account value
+            }
+        """
+        conn = self.db_connection or get_connection()
+        try:
+            # Get current position
+            position = self.get_position(ticker, user_id)
+            current_shares = position['quantity'] if position else 0
+            current_avg_price = position['entry_price'] if position else 0.0
+            stop_loss = position['stop_loss'] if position else None
+            
+            # Get first entry price for stop-loss calculation
+            first_entry_price = current_avg_price  # Default to avg if only one entry
+            if position:
+                with conn.cursor() as cursor:
+                    cursor.execute("""
+                        SELECT entry_price 
+                        FROM position_entries
+                        WHERE ticker = %(ticker)s AND user_id = %(user_id)s
+                        ORDER BY entry_date ASC
+                        LIMIT 1
+                    """, {'ticker': ticker, 'user_id': user_id})
+                    row = cursor.fetchone()
+                    if row:
+                        first_entry_price = float(row[0])
+            
+            # 1. Portfolio Allocation Limit (20% max)
+            current_position_value = current_shares * current_price
+            max_position_value = account_value * 0.20
+            remaining_value_capacity = max_position_value - current_position_value
+            
+            # 2. Liquidity Limit (1% of 20-day avg daily volume)
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                    SELECT AVG(volume) as avg_volume
+                    FROM (
+                        SELECT volume
+                        FROM market_data
+                        WHERE symbol = %(ticker)s
+                        ORDER BY date DESC
+                        LIMIT 20
+                    ) recent_volume
+                """, {'ticker': ticker})
+                row = cursor.fetchone()
+                avg_daily_volume = int(row[0]) if row and row[0] else 1000000  # Default fallback
+            
+            max_shares_liquidity = int(avg_daily_volume * 0.01)
+            remaining_share_capacity = max_shares_liquidity - current_shares
+            
+            # 3. Total Risk Limit (2% of account value)
+            # Risk is calculated from first entry price, not average cost
+            max_risk_allowed = account_value * 0.02
+            
+            # Current risk based on stop-loss from first entry
+            if stop_loss and current_shares > 0:
+                current_risk = current_shares * (first_entry_price - stop_loss)
+            else:
+                current_risk = 0.0
+            
+            # Calculate max additional shares based on risk
+            # For new shares: risk_per_share = (current_price - stop_loss)
+            if stop_loss and current_price > stop_loss:
+                risk_per_share = current_price - stop_loss
+                remaining_risk_capacity = max_risk_allowed - current_risk
+                max_shares_by_risk = int(remaining_risk_capacity / risk_per_share) if risk_per_share > 0 else 0
+            else:
+                max_shares_by_risk = remaining_share_capacity  # No stop-loss constraint
+            
+            # Determine binding constraint
+            max_shares_by_value = int(remaining_value_capacity / current_price) if current_price > 0 else 0
+            
+            # Take minimum across all constraints
+            max_buyable_shares = max(0, min(
+                max_shares_by_value,
+                remaining_share_capacity,
+                max_shares_by_risk
+            ))
+            
+            # Determine which limit is binding
+            at_limit = max_buyable_shares == 0
+            if at_limit:
+                if remaining_value_capacity <= 0:
+                    limit_reason = "portfolio_allocation_20pct"
+                elif remaining_share_capacity <= 0:
+                    limit_reason = "liquidity_1pct_volume"
+                elif max_shares_by_risk <= 0:
+                    limit_reason = "total_risk_2pct"
+                else:
+                    limit_reason = "position_at_capacity_limit"
+            else:
+                limit_reason = None
+            
+            return {
+                'at_limit': at_limit,
+                'current_position_value': current_position_value,
+                'max_position_value': max_position_value,
+                'remaining_value_capacity': remaining_value_capacity,
+                'current_shares': current_shares,
+                'max_shares_liquidity': max_shares_liquidity,
+                'remaining_share_capacity': remaining_share_capacity,
+                'max_buyable_shares': max_buyable_shares,
+                'limit_reason': limit_reason,
+                'total_risk': current_risk,
+                'max_risk_allowed': max_risk_allowed,
+                'avg_daily_volume': avg_daily_volume
+            }
+            
+        finally:
+            if not self.db_connection:
+                conn.close()
+                
     def add_position(self, user_id: int, ticker: str, shares: int, entry_price: float,
                     entry_date: str, stop_loss: float, target_1: float = None,
                     target_2: float = None, target_3: float = None,
@@ -250,6 +477,80 @@ class PositionManager:
         except Exception as e:
             conn.rollback()
             logger.error(f"Failed to create position for {ticker}: {e}")
+            raise
+        finally:
+            if not self.db_connection:
+                conn.close()
+                
+    def update_position_after_buy(self, ticker: str, new_shares: int, new_price: float,
+                                   entry_date: str, user_id: int = 1,
+                                   transaction_type: str = 'BUY_MORE') -> None:
+        """
+        Record new share purchase and recalculate weighted average cost.
+        
+        This method:
+        1. Inserts entry into position_entries table
+        2. Database trigger auto-updates positions table with new average cost
+        3. Updates aggregate tracking fields (total_entries, total_fees_paid, etc.)
+        
+        Args:
+            ticker: Stock symbol
+            new_shares: Number of shares purchased
+            new_price: Price per share for this purchase
+            entry_date: Purchase date (YYYY-MM-DD format)
+            user_id: User ID (default=1)
+            transaction_type: 'BUY_NEW' or 'BUY_MORE' (default='BUY_MORE')
+            
+        Raises:
+            ValueError: If shares or price are invalid
+        """
+        if new_shares <= 0:
+            raise ValueError(f"Shares must be positive, got {new_shares}")
+        if new_price <= 0:
+            raise ValueError(f"Price must be positive, got {new_price}")
+            
+        # Calculate entry fee (0.15% of purchase value)
+        purchase_value = new_shares * new_price
+        entry_fee = purchase_value * 0.0015
+        
+        conn = self.db_connection or get_connection()
+        try:
+            with conn.cursor() as cursor:
+                # Insert entry into position_entries
+                # Trigger will automatically update positions table
+                cursor.execute("""
+                    INSERT INTO position_entries (
+                        user_id, ticker, entry_date, entry_price,
+                        shares_purchased, entry_fee_paid, transaction_type
+                    ) VALUES (
+                        %(user_id)s, %(ticker)s, %(entry_date)s, %(entry_price)s,
+                        %(shares)s, %(entry_fee)s, %(transaction_type)s
+                    )
+                    RETURNING entry_id
+                """, {
+                    'user_id': user_id,
+                    'ticker': ticker,
+                    'entry_date': entry_date,
+                    'entry_price': new_price,
+                    'shares': new_shares,
+                    'entry_fee': entry_fee,
+                    'transaction_type': transaction_type
+                })
+                
+                entry_id = cursor.fetchone()[0]
+                
+            conn.commit()
+            
+            # Log the update
+            avg_cost = self.calculate_average_cost(ticker, user_id)
+            logger.info(
+                f"Recorded {transaction_type} for {ticker}: {new_shares} shares @ {new_price:.2f}. "
+                f"Entry ID: {entry_id}, Fee: {entry_fee:.2f} VND, New avg cost: {avg_cost:.2f}"
+            )
+            
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"Failed to record entry for {ticker}: {e}")
             raise
         finally:
             if not self.db_connection:
@@ -347,6 +648,135 @@ class PositionManager:
             if not self.db_connection:
                 conn.close()
                 
+    def partial_exit_position(self, position_id: str, shares_to_sell: int,
+                              exit_price: float, exit_date: str,
+                              exit_reason: str = 'PARTIAL_EXIT') -> Dict:
+        """
+        Sell a portion of a position with proportional fee allocation.
+        
+        This method:
+        1. Validates that shares_to_sell < total shares
+        2. Calculates proportional entry fees: (shares_sold / total_shares) × total_fees_paid
+        3. Calculates exit fee: sale_value × 0.0025 (0.15% + 0.10% tax)
+        4. Computes fee-adjusted P&L
+        5. Updates position with reduced quantity and proportionally reduced fees
+        6. Keeps average cost unchanged (entries remain immutable)
+        
+        Args:
+            position_id: UUID of position
+            shares_to_sell: Number of shares to sell (must be < total quantity)
+            exit_price: Exit price per share
+            exit_date: Exit date (YYYY-MM-DD format)
+            exit_reason: Reason for partial exit (default='PARTIAL_EXIT')
+            
+        Returns:
+            Dictionary with partial exit details:
+            {
+                'shares_sold': int,
+                'remaining_shares': int,
+                'avg_cost': float,
+                'gross_proceeds': float,
+                'proportional_entry_fees': float,
+                'exit_fee': float,
+                'total_fees': float,
+                'realized_pnl': float,
+                'pnl_percent': float
+            }
+            
+        Raises:
+            ValueError: If trying to sell all or more shares (use close_position instead)
+        """
+        if shares_to_sell <= 0:
+            raise ValueError(f"Shares to sell must be positive, got {shares_to_sell}")
+        if exit_price <= 0:
+            raise ValueError(f"Exit price must be positive, got {exit_price}")
+            
+        conn = self.db_connection or get_connection()
+        try:
+            with conn.cursor() as cursor:
+                # Get position details including  aggregated fees
+                cursor.execute("""
+                    SELECT symbol, user_id, entry_price, quantity, total_fees_paid
+                    FROM positions
+                    WHERE id = %(position_id)s AND is_closed = FALSE
+                """, {'position_id': position_id})
+                
+                row = cursor.fetchone()
+                if not row:
+                    raise ValueError(f"Position {position_id} not found or already closed")
+                    
+                ticker, user_id, avg_cost, total_shares, total_fees_paid = row
+                avg_cost = float(avg_cost)
+                total_fees_paid = float(total_fees_paid) if total_fees_paid else 0.0
+                
+                # Validate partial exit
+                if shares_to_sell >= total_shares:
+                    raise ValueError(
+                        f"Cannot partially exit {shares_to_sell} shares from position of {total_shares}. "
+                        f"Use close_position() to exit all shares."
+                    )
+                
+                remaining_shares = total_shares - shares_to_sell
+                
+                # Calculate proportional entry fees
+                proportional_entry_fees = total_fees_paid * (shares_to_sell / total_shares)
+                
+                # Calculate exit fee (0.25% = 0.15% broker + 0.10% tax)
+                sale_value = shares_to_sell * exit_price
+                exit_fee = sale_value * 0.0025
+                
+                # Calculate fee-adjusted P&L
+                cost_basis = avg_cost * shares_to_sell
+                gross_proceeds = sale_value
+                total_fees = proportional_entry_fees + exit_fee
+                realized_pnl = gross_proceeds - cost_basis - total_fees
+                pnl_percent = (realized_pnl / (cost_basis + proportional_entry_fees)) * 100
+                
+                # Update position with reduced quantity and fees
+                remaining_fees = total_fees_paid - proportional_entry_fees
+                
+                cursor.execute("""
+                    UPDATE positions
+                    SET quantity = %(remaining_shares)s,
+                        total_fees_paid = %(remaining_fees)s,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = %(position_id)s
+                """, {
+                    'remaining_shares': remaining_shares,
+                    'remaining_fees': remaining_fees,
+                    'position_id': position_id
+                })
+                
+            conn.commit()
+            
+            result = {
+                'shares_sold': shares_to_sell,
+                'remaining_shares': remaining_shares,
+                'avg_cost': avg_cost,
+                'gross_proceeds': gross_proceeds,
+                'proportional_entry_fees': proportional_entry_fees,
+                'exit_fee': exit_fee,
+                'total_fees': total_fees,
+                'realized_pnl': realized_pnl,
+                'pnl_percent': pnl_percent
+            }
+            
+            logger.info(
+                f"Partial exit {ticker}: Sold {shares_to_sell}/{total_shares} shares @ {exit_price:.2f}. "
+                f"Remaining: {remaining_shares} @ {avg_cost:.2f} avg. "
+                f"P&L: {realized_pnl:+,.0f} VND ({pnl_percent:+.2f}%)"
+            )
+            
+            return result
+            
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"Failed to partial exit position {position_id}: {e}")
+            raise
+        finally:
+            if not self.db_connection:
+                conn.close()
+                
     def close_position(self, position_id: str, exit_price: float,
                       exit_date: str, exit_reason: str) -> None:
         """
@@ -369,9 +799,9 @@ class PositionManager:
         conn = self.db_connection or get_connection()
         try:
             with conn.cursor() as cursor:
-                # Get position details
+                # Get position details including total fees
                 cursor.execute("""
-                    SELECT symbol, entry_price, quantity, stop_loss
+                    SELECT symbol, entry_price, quantity, stop_loss, total_fees_paid
                     FROM positions
                     WHERE id = %(position_id)s AND is_closed = FALSE
                 """, {'position_id': position_id})
@@ -380,13 +810,21 @@ class PositionManager:
                 if not row:
                     raise ValueError(f"Position {position_id} not found or already closed")
                     
-                ticker, entry_price, quantity, stop_loss = row
+                ticker, entry_price, quantity, stop_loss, total_fees_paid = row
                 entry_price = float(entry_price)
                 stop_loss = float(stop_loss) if stop_loss else entry_price
+                total_fees_paid = float(total_fees_paid) if total_fees_paid else 0.0
                 
-                # Calculate P&L metrics
-                pnl = quantity * (exit_price - entry_price)
-                pnl_percent = ((exit_price - entry_price) / entry_price) * 100
+                # Calculate exit fee (0.25% = 0.15% broker + 0.10% tax)
+                exit_value = quantity * exit_price
+                exit_fee = exit_value * 0.0025
+                
+                # Calculate fee-adjusted P&L metrics
+                cost_basis = quantity * entry_price
+                gross_proceeds = exit_value
+                total_fees = total_fees_paid + exit_fee
+                pnl = gross_proceeds - cost_basis - total_fees
+                pnl_percent = (pnl / (cost_basis + total_fees_paid)) * 100 if (cost_basis + total_fees_paid) > 0 else 0.0
                 
                 # R-multiple: profit per share / risk per share
                 risk_per_share = entry_price - stop_loss if entry_price > stop_loss else 1.0
@@ -426,3 +864,17 @@ class PositionManager:
         finally:
             if not self.db_connection:
                 conn.close()
+    
+    def snapshot_portfolio_equity(self, user_id: int, snapshot_date: date) -> None:
+        """
+        Create daily equity snapshot for portfolio drawdown tracking.
+        
+        Args:
+            user_id: User ID
+            snapshot_date: Date of snapshot
+        """
+        from validation.portfolio_metrics import PortfolioEquityTracker
+        
+        tracker = PortfolioEquityTracker(db_connection=self.db_connection)
+        tracker.save_equity_snapshot(user_id, snapshot_date)
+        logger.info(f"Portfolio equity snapshot created for user {user_id} on {snapshot_date}")

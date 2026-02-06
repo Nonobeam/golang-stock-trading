@@ -34,12 +34,16 @@ class SignalGenerator:
         
         
     def generate_signal(self, ticker: str, predictions: Dict[int, Dict[str, float]], 
-                       current_price: float = None, db_connection=None, user_id: int = None) -> Tuple[str, float, str]:
+                       current_price: float = None, db_connection=None, user_id: int = None,
+                       account_value: float = None) -> Tuple[str, float, str]:
         """
         Generate Buy/Sell/Hold signal based on multi-horizon predictions.
         
         Position-aware: If db_connection provided, loads position data and generates
         context-aware signals (BUY_NEW vs BUY_MORE, stop-loss checking, etc.)
+        
+        Capacity-aware: If account_value provided, checks buying capacity before
+        issuing BUY signals.
         
         Args:
             ticker: Stock symbol
@@ -47,6 +51,7 @@ class SignalGenerator:
             current_price: Current market price (required for stop-loss/target checking)
             db_connection: Optional database connection for position queries
             user_id: Optional user ID (uses self.user_id if not provided)
+            account_value: Optional total account value for capacity checking
             
         Returns:
             Tuple of (Signal, Strength, Reason)
@@ -59,8 +64,10 @@ class SignalGenerator:
         
         # Load position if db_connection provided
         position = None
+        pm = None
+        uid = user_id if user_id is not None else self.user_id
+        
         if db_connection:
-            uid = user_id if user_id is not None else self.user_id
             pm = PositionManager(db_connection)
             position = pm.get_position_for_signal(ticker, uid)
             
@@ -131,6 +138,13 @@ class SignalGenerator:
                     signal_type = "HOLD" if position else "HOLD_NONE"
                     return signal_type, 0.0, "Short-term pull back detected despite long-term growth"
                 
+                # Check Buying Capacity constraints if account_value provided
+                if pm and account_value and current_price:
+                    capacity = pm.check_buying_capacity(ticker, current_price, account_value, uid)
+                    if capacity['at_limit']:
+                        signal_type = "HOLD" if position else "HOLD_NONE"
+                        return signal_type, 0.0, f"Capacity limit reached: {capacity['limit_reason']}"
+                
                 # Calculate strength based on return magnitude
                 return_strength = min(1.0, p50 / 0.10) # 10% return = max strength
                 
@@ -195,7 +209,8 @@ class SignalGenerator:
     
     def generate_and_save_signal(self, ticker: str, predictions: Dict[int, Dict[str, float]], 
                                  date: str, current_price: float = None, 
-                                 db_connection=None, user_id: int = None) -> Tuple[Dict, bool]:
+                                 db_connection=None, user_id: int = None,
+                                 account_value: float = None) -> Tuple[Dict, bool]:
         """
         Combined method for production use - generate and save signal in single call.
         
@@ -206,6 +221,7 @@ class SignalGenerator:
             current_price: Optional current market price for position checks
             db_connection: Optional DB connection (uses get_connection if None, enables position-aware signals)
             user_id: Optional user ID (uses self.user_id if not provided)
+            account_value: Optional total account value for capacity checking
         
         Returns:
             Tuple of (signal_dict, save_success)
@@ -216,7 +232,7 @@ class SignalGenerator:
         try:
             uid = user_id if user_id is not None else self.user_id
             signal, strength, reason = self.generate_signal(
-                ticker, predictions, current_price, db_connection, uid
+                ticker, predictions, current_price, db_connection, uid, account_value
             )
             
             # Load position for metadata (if not already loaded)
@@ -240,6 +256,11 @@ class SignalGenerator:
                 'generated_at': datetime.now().isoformat(),
                 'position_exists': position is not None
             }
+            
+            # Add capacity info to metadata if relevant (e.g., if filtered by capacity)
+            if "Capacity limit reached" in reason:
+                 metadata['capacity_limit_reached'] = True
+                 metadata['capacity_reason'] = reason
             
             # Add position details to metadata if available
             if position:
@@ -266,6 +287,7 @@ class SignalGenerator:
                 logger.warning(f"Signal generated but save failed for {ticker} on {date}")
             
             return signal_dict, save_success
+
             
         except Exception as e:
             logger.error(f"Failed to generate signal for {ticker}: {e}")

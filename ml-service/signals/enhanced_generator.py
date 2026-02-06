@@ -30,6 +30,7 @@ from validation.transaction_costs import (
 )
 from validation.liquidity_manager import LiquidityManager
 from models.floor_hit_classifier import FloorHitClassifier
+from position_sizing.locked_risk import LockedRiskCalculator, get_user_locked_risk_threshold
 
 logger = logging.getLogger("enhanced_signal_generator")
 
@@ -68,7 +69,11 @@ class EnhancedSignalGenerator:
         self.FLOOR_RISK_WARNING = 0.10  # 10% = reduce position
         self.MIN_LIQUIDITY_SCORE = 2  # 1-10 scale, <2 = too illiquid
         self.MAX_EPISTEMIC_UNCERTAINTY = 0.05  # 5% model disagreement = reject
-        
+
+        # T+2 Settlement Risk thresholds
+        self.APPLY_ENTRY_DAY_LIMITS = True  # Enforce Thursday/Friday restrictions
+        self.LOCKED_RISK_THRESHOLD = 0.10   # Default 10%, overridden by user config
+
         # Initialize validation modules
         self.liquidity_manager = LiquidityManager()
         self.floor_classifier = FloorHitClassifier(exchange=exchange)
@@ -200,7 +205,10 @@ class EnhancedSignalGenerator:
             if not uncertainty_check['acceptable']:
                 signal_type = "HOLD" if position else "HOLD_NONE"
                 return signal_type, 0.0, uncertainty_check['reason'], validation_metadata
-        
+
+        # 9. **NEW** T+2 Settlement Risk Check (for BUY signals only)
+        # This check is performed later in BUY logic section to avoid running it unnecessarily
+
         # ===================================================================
         # DECISION LOGIC (with validations)
         # ===================================================================
@@ -229,14 +237,30 @@ class EnhancedSignalGenerator:
                     return signal_type, 0.0, \
                         "Short-term pullback despite long-term growth", \
                         validation_metadata
-                
+
+                # **NEW** T+2 Settlement Risk Check (only for BUY signals)
+                # Calculate proposed shares if not provided (default to max liquidity allows)
+                max_position_shares = liquidity_check.get('max_position_shares', 0)
+
+                if db_connection and current_price and account_value and max_position_shares > 0:
+                    settlement_check = self._check_settlement_risk(
+                        db_connection,
+                        uid if 'uid' in locals() else user_id if user_id else self.user_id,
+                        ticker,
+                        max_position_shares,
+                        current_price,
+                        account_value,
+                        validation_metadata
+                    )
+                    if settlement_check:
+                        return settlement_check  # Rejected due to settlement risk
+
                 # Calculate strength
                 return_strength = min(1.0, fee_adjusted_return / 0.08)
-                
+
                 # Check liquidity cap for position sizing
-                max_position_shares = liquidity_check.get('max_position_shares', 0)
                 validation_metadata['max_position_shares'] = max_position_shares
-                
+
                 if position:
                     if current_price and position.get('target_1') and \
                        current_price >= position['target_1']:
@@ -423,6 +447,87 @@ class EnhancedSignalGenerator:
         
         metadata['validations_passed'].append('uncertainty')
         return {'acceptable': True, 'reason': 'Uncertainty acceptable'}
+
+    def _check_settlement_risk(
+        self,
+        db_connection,
+        user_id: int,
+        ticker: str,
+        shares: int,
+        current_price: float,
+        account_value: float,
+        metadata: Dict
+    ) -> Optional[Tuple]:
+        """
+        Check T+2 settlement risk constraints.
+
+        Validates:
+        1. Locked risk budget - max 10% of account value in locked capital
+        2. Entry day restrictions - 50% position size on Thursday/Friday
+
+        Args:
+            db_connection: Database connection
+            user_id: User ID
+            ticker: Stock symbol
+            shares: Proposed shares to purchase
+            current_price: Entry price
+            account_value: Total account value
+            metadata: Validation metadata dict
+
+        Returns:
+            Tuple of (Signal, Strength, Reason, Metadata) if rejected, None if approved
+        """
+        try:
+            locked_risk_calc = LockedRiskCalculator(db_connection)
+            threshold = get_user_locked_risk_threshold(db_connection, user_id)
+
+            # Check locked risk budget
+            approved, message = locked_risk_calc.check_locked_risk_budget(
+                user_id, ticker, shares, current_price, account_value, threshold
+            )
+
+            metadata['settlement_risk'] = {
+                'locked_risk_threshold': threshold,
+                'locked_risk_approved': approved,
+                'validation_message': message
+            }
+
+            if not approved:
+                metadata['validations_failed'].append({
+                    'check': 'locked_risk_budget',
+                    'message': message,
+                    'threshold': threshold
+                })
+                return "HOLD_NONE", 0.0, \
+                    f"T+2 Settlement Risk: {message}", \
+                    metadata
+
+            # Check entry day restrictions
+            if self.APPLY_ENTRY_DAY_LIMITS:
+                from datetime import datetime
+                weekday = datetime.now().weekday()  # 0=Monday, 6=Sunday
+                if weekday in (3, 4):  # Thursday or Friday
+                    day_name = 'Thursday' if weekday == 3 else 'Friday'
+                    metadata['settlement_risk']['entry_day_warning'] = (
+                        f"Position size should be reduced to 50% due to {day_name} entry "
+                        f"(weekend lock risk extends settlement period)"
+                    )
+                    metadata['warnings'].append(
+                        f"{day_name} entry - Consider 50% position size due to weekend settlement lock"
+                    )
+
+            # If there's a warning but approved
+            if message and approved:
+                metadata['settlement_risk']['budget_warning'] = message
+                metadata['warnings'].append(f"Settlement risk: {message}")
+
+            metadata['validations_passed'].append('settlement_risk')
+            return None
+
+        except Exception as e:
+            logger.warning(f"Settlement risk check failed: {e}")
+            metadata['warnings'].append(f'Settlement risk check error: {str(e)}')
+            return None
     
     def save_signal(self, ticker: str, date: str, signal: str, strength: float, 
                    reason: str, metadata: Dict = None, validation_metadata: Dict = None):

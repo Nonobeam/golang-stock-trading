@@ -17,15 +17,19 @@ class PositionSizer:
         self.base_fraction = base_fraction
         self.max_allocation = max_allocation
         
-    def calculate_size(self, prediction_dict: dict, horizon: int = 5) -> float:
+    def calculate_size(self, prediction_dict: dict, horizon: int = 5, drawdown_multiplier: float = 1.0) -> float:
         """
-        Calculate position size fraction using fixed fractional approach.
+        Calculate position size fraction using fixed fractional approach with drawdown adjustment.
         
-        Formula: f = f_base × m_confidence × m_horizon
+        Formula: f = f_base × m_confidence × m_horizon × m_drawdown
         
         Args:
             prediction_dict: Dict with 'p10', 'p50', 'p90' keys
             horizon: Forecast horizon in days (1, 5, or 10)
+            drawdown_multiplier: Portfolio drawdown adjustment (0.0-1.0)
+                - 1.0 = normal sizing (drawdown < -5%)
+                - 0.5 = half sizing (drawdown -10% to -15%)
+                - 0.0 = stop trading (drawdown < -15%)
         
         Returns:
             Float representing fraction of capital to allocate (0.0 to max_allocation)
@@ -62,8 +66,8 @@ class PositionSizer:
         }
         horizon_multiplier = horizon_multipliers.get(horizon, 1.0)
         
-        # Calculate position fraction
-        position_fraction = self.base_fraction * confidence_multiplier * horizon_multiplier
+        # Calculate position fraction with drawdown adjustment
+        position_fraction = self.base_fraction * confidence_multiplier * horizon_multiplier * drawdown_multiplier
         
         # Apply maximum cap
         final_allocation = min(position_fraction, self.max_allocation)
@@ -71,20 +75,21 @@ class PositionSizer:
         return final_allocation
     
     def calculate_shares(self, account_value: float, price: float, 
-                         prediction_dict: dict, horizon: int = 5) -> int:
+                         prediction_dict: dict, horizon: int = 5, drawdown_multiplier: float = 1.0) -> int:
         """
-        Calculate number of shares to buy.
+        Calculate number of shares to buy with drawdown adjustment.
         
         Args:
             account_value: Total account value in VND
             price: Current stock price in VND
             prediction_dict: Dict with 'p10', 'p50', 'p90' keys
             horizon: Forecast horizon in days
+            drawdown_multiplier: Portfolio drawdown adjustment (0.0-1.0)
         
         Returns:
             Integer number of shares to buy
         """
-        position_fraction = self.calculate_size(prediction_dict, horizon)
+        position_fraction = self.calculate_size(prediction_dict, horizon, drawdown_multiplier)
         position_size_vnd = account_value * position_fraction
         shares = int(position_size_vnd / price)  # Round down to integer
         
@@ -171,7 +176,41 @@ class PositionSizer:
                 'reason': f'Current allocation {current_allocation:.1%} within {tolerance:.0%} of optimal {recommended_allocation:.1%}'
             }
         elif delta_shares > 0:
-            # Recommended position is larger - buy more
+            # Recommended position is larger - check capacity before allowing BUY_MORE
+            if db_connection:
+                pm = PositionManager(db_connection)
+                capacity = pm.check_buying_capacity(ticker, current_price, account_value, user_id)
+                
+                # If at capacity limit, override to HOLD
+                if capacity['at_limit']:
+                    return {
+                        'action': 'HOLD',
+                        'current_shares': current_shares,
+                        'recommended_shares': current_shares,  # Can't buy more
+                        'delta_shares': 0,
+                        'current_allocation': current_allocation,
+                        'recommended_allocation': current_allocation,
+                        'reason': f'At capacity limit ({capacity["limit_reason"]})',
+                        'capacity_info': capacity
+                    }
+                
+                # Constrain delta_shares by capacity
+                max_buyable = capacity['max_buyable_shares']
+                if delta_shares > max_buyable:
+                    # Can only buy up to capacity limit
+                    constrained_shares = max_buyable
+                    return {
+                        'action': 'BUY_MORE' if constrained_shares > 0 else 'HOLD',
+                        'current_shares': current_shares,
+                        'recommended_shares': current_shares + constrained_shares,
+                        'delta_shares': constrained_shares,
+                        'current_allocation': current_allocation,
+                        'recommended_allocation': (current_shares + constrained_shares) * current_price / account_value,
+                        'reason': f'Capacity-constrained: can buy {constrained_shares} of {delta_shares} recommended shares',
+                        'capacity_info': capacity
+                    }
+            
+            # No capacity constraint or capacity allows full purchase
             return {
                 'action': 'BUY_MORE',
                 'current_shares': current_shares,
@@ -192,4 +231,5 @@ class PositionSizer:
                 'recommended_allocation': recommended_allocation,
                 'reason': f'Overweight by {allocation_diff:.1%} - recommend selling {abs(delta_shares)} shares'
             }
+
 

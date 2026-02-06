@@ -8,9 +8,8 @@ import (
 	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
-	"github.com/google/uuid"
-	"github.com/nonobeam/golang-stock-trading/internal/db/repository"
 	"github.com/nonobeam/golang-stock-trading/internal/logger"
+	positionsvc "github.com/nonobeam/golang-stock-trading/internal/service/position"
 )
 
 // handleAddPositionCommand handles /addposition <symbol> <price> <qty> [stop]
@@ -64,53 +63,60 @@ func (s *BotService) handleAddPositionCommand(msg *tgbotapi.Message) {
 		return
 	}
 
-	// Create position in database
-	const defaultUserID = int64(1)
-	position := &repository.Position{
-		ID:         uuid.New().String(),
-		UserID:     defaultUserID,
-		Symbol:     symbol,
-		EntryDate:  time.Now(),
-		EntryPrice: entryPrice,
-		Quantity:   quantity,
-		StopLoss:   stopLoss,
-		IsClosed:   false,
-		CreatedAt:  time.Now(),
-		UpdatedAt:  time.Now(),
+	// Use Service instead of Repo directly
+	if s.positionSvc == nil {
+		// Fallback to Repo if Svc not initialized (should be by SetPositionRepository)
+		if s.positionRepo == nil {
+             s.SendMessage(chatID, "Service not configured")
+             return
+        }
+        s.positionSvc = positionsvc.NewService(s.positionRepo)
 	}
+    
+    // Check if position exists
+    ctx := context.Background()
+    // For manual addposition, we want to allow override or force create? 
+    // /addposition usually implies creating a new logical position, but internal logic prevents duplicates.
+    // If it exists, we should probably warn or call AddEntry?
+    // Let's stick to CreatePosition logic which mirrors handleBuyCommand updates now.
+    
+    req := positionsvc.CreatePositionRequest{
+        UserID: 1, // Default user
+        Symbol: symbol,
+        Price: entryPrice,
+        Shares: quantity,
+        Date: time.Now(),
+        StopLoss: stopLoss,
+    }
+    
+    // Try to create. If duplicate, we might get error.
+    // Ideally we check first.
+    existing, _ := s.positionRepo.GetBySymbol(ctx, 1, symbol)
+    if existing != nil {
+         // Add Entry instead
+         err = s.positionSvc.AddEntry(ctx, positionsvc.AddEntryRequest{
+             UserID: 1,
+             Symbol: symbol,
+             Price: entryPrice,
+             Shares: quantity,
+             Type: "BUY_MORE",
+             Date: time.Now(),
+         })
+         if err != nil {
+             s.SendMessage(chatID, "Failed to add to existing position: " + err.Error())
+             return
+         }
+         s.SendMessage(chatID, fmt.Sprintf("✅ Added %d shares to existing %s position.", quantity, symbol))
+         return
+    }
 
-	ctx := context.Background()
-	if err := s.positionRepo.Create(ctx, position); err != nil {
-		logger.Error().Err(err).Msg("Failed to create position")
-		s.SendMessage(chatID, "Failed to add position. Please try again.")
-		return
-	}
+    _, err = s.positionSvc.CreatePosition(ctx, req)
+    if err != nil {
+         s.SendMessage(chatID, "Failed to create position: " + err.Error())
+         return
+    }
 
-	// Calculate risk metrics
-	riskPerShare := entryPrice - stopLoss
-	totalRisk := riskPerShare * float64(quantity)
-	riskPercent := (riskPerShare / entryPrice) * 100
-
-	respText := fmt.Sprintf(
-		"<b>Position Added</b>\n\n"+
-			"Symbol: <b>%s</b>\n"+
-			"Entry: %s VND\n"+
-			"Quantity: %d shares\n"+
-			"Stop-Loss: %s VND\n\n"+
-			"<b>Risk Analysis:</b>\n"+
-			"Risk/Share: %s VND (%.2f%%)\n"+
-			"Total Risk: %s VND\n\n"+
-			"Position is now being monitored!",
-		symbol,
-		formatPrice(entryPrice),
-		quantity,
-		formatPrice(stopLoss),
-		formatPrice(riskPerShare),
-		riskPercent,
-		formatPrice(totalRisk),
-	)
-
-	s.SendMessage(chatID, respText)
+	s.SendMessage(chatID, fmt.Sprintf("✅ Position opened for %s", symbol))
 }
 
 // handleEditPositionCommand handles /editposition <symbol>
@@ -161,6 +167,169 @@ func (s *BotService) handleEditPositionCommand(msg *tgbotapi.Message) {
 	s.SendMessage(chatID, respText)
 	// Note: Full implementation would need state management to handle the reply
 	// For now, this is a simplified version
+}
+
+// handleBuyCommand handles /buy <symbol> <quantity> <price> [date]
+// Records a stock purchase in the positions table
+func (s *BotService) handleBuyCommand(msg *tgbotapi.Message) {
+	chatID := msg.Chat.ID
+	text := msg.Text
+
+	// Check dependencies
+	if s.positionRepo == nil {
+		s.SendMessage(chatID, "Position management not configured")
+		return
+	}
+	
+	// Ensure service is ready (lazy init if missed)
+	if s.positionSvc == nil {
+		s.positionSvc = positionsvc.NewService(s.positionRepo)
+	}
+
+	// Parse arguments
+	args := strings.Fields(text)
+	if len(args) < 4 {
+		usageText := "<b>Usage:</b> /buy &lt;symbol&gt; &lt;quantity&gt; &lt;price&gt; [date]\n\n" +
+			"<b>Examples:</b>\n" +
+			"  /buy VNM 100 85000\n" +
+			"  /buy VNM 100 85000 2026-01-25\n\n" +
+			"<b>Parameters:</b>\n" +
+			"  symbol - Stock symbol (e.g., VNM, HPG)\n" +
+			"  quantity - Number of shares (positive integer)\n" +
+			"  price - Purchase price per share (positive number)\n" +
+			"  date - Optional purchase date (YYYY-MM-DD format, defaults to today)"
+		s.SendMessage(chatID, usageText)
+		return
+	}
+
+	// Parse symbol
+	symbol := strings.ToUpper(args[1])
+
+	// Parse quantity
+	quantity, err := strconv.Atoi(args[2])
+	if err != nil {
+		s.SendMessage(chatID, "❌ Invalid quantity. Must be a number.")
+		return
+	}
+	if quantity <= 0 {
+		s.SendMessage(chatID, "❌ Invalid quantity. Must be a positive number.")
+		return
+	}
+
+	// Parse price
+	price, err := strconv.ParseFloat(args[3], 64)
+	if err != nil {
+		s.SendMessage(chatID, "❌ Invalid price. Must be a number.")
+		return
+	}
+	if price <= 0 {
+		s.SendMessage(chatID, "❌ Invalid price. Must be a positive number.")
+		return
+	}
+
+	// Parse optional date
+	var purchaseDate time.Time
+	if len(args) >= 5 {
+		purchaseDate, err = time.Parse("2006-01-02", args[4])
+		if err != nil {
+			s.SendMessage(chatID, "❌ Invalid date format. Please use YYYY-MM-DD (e.g., 2026-01-25)")
+			return
+		}
+	} else {
+		purchaseDate = time.Now()
+	}
+
+	// Get user context
+	user, err := s.getUserContext(chatID)
+	if err != nil {
+		logger.Error().Err(err).Int64("chatID", chatID).Msg("Failed to get user context")
+		s.SendMessage(chatID, "Failed to record purchase. Please try again.")
+		return
+	}
+
+	ctx := context.Background()
+
+	// Check if position exists
+	existingPos, err := s.positionRepo.GetBySymbol(ctx, user.UserID, symbol)
+	if err != nil {
+		logger.Error().Err(err).Msg("DB Error checking position")
+		s.SendMessage(chatID, "Internal error checking position")
+		return
+	}
+
+	if existingPos != nil {
+		// ADD ENTRY
+		req := positionsvc.AddEntryRequest{
+			UserID: user.UserID,
+			Symbol: symbol,
+			Shares: quantity,
+			Price:  price,
+			Date:   purchaseDate,
+			Type:   "BUY_MORE",
+		}
+
+		if err := s.positionSvc.AddEntry(ctx, req); err != nil {
+			logger.Error().Err(err).Msg("Failed to add entry")
+			s.SendMessage(chatID, "❌ Failed to add entry: "+err.Error())
+			return
+		}
+
+		// Calculate new average
+		// We could fetch updated details, but for speed just confirm
+		confirmText := fmt.Sprintf(
+			"✅ <b>Added to %s</b>\n\n"+
+				"<b>Quantity:</b> +%s shares\n"+
+				"<b>Price:</b> %s VND\n"+
+				"<b>Total Cost:</b> %s VND\n\n"+
+				"Use /status to see updated average cost.",
+			symbol,
+			formatNumber(quantity),
+			formatPrice(price),
+			formatPrice(price*float64(quantity)),
+		)
+		s.SendMessage(chatID, confirmText)
+
+	} else {
+		// CREATE POSITION
+		// We need StopLoss for CreatePosition. /buy command doesn't provide it strictly?
+		// Logic: Default stop loss if not provided. Bot /buy usage says: symbol, qty, price, [date].
+		// It does NOT have Stop Loss.
+		// /addposition had stop loss.
+		// For /buy, we can set default stop loss (e.g. 7% or 0). Or ask user?
+		// Existing logic in /addposition used 3% automatic.
+		// Let's use 7% automatic for /buy command simplifiction.
+		defaultStopLoss := price * 0.93
+
+		req := positionsvc.CreatePositionRequest{
+			UserID:   user.UserID,
+			Symbol:   symbol,
+			Shares:   quantity,
+			Price:    price,
+			Date:     purchaseDate,
+			StopLoss: defaultStopLoss, 
+		}
+
+		_, err := s.positionSvc.CreatePosition(ctx, req)
+		if err != nil {
+			logger.Error().Err(err).Msg("Failed to create position")
+			s.SendMessage(chatID, "❌ Failed to create position: "+err.Error())
+			return
+		}
+
+		confirmText := fmt.Sprintf(
+			"✅ <b>New Position: %s</b>\n\n"+
+				"<b>Quantity:</b> %s shares\n"+
+				"<b>Entry Price:</b> %s VND\n"+
+				"<b>Stop Loss:</b> %s VND (Auto -7%%)\n"+
+				"<b>Total Cost:</b> %s VND\n",
+			symbol,
+			formatNumber(quantity),
+			formatPrice(price),
+			formatPrice(defaultStopLoss),
+			formatPrice(price*float64(quantity)),
+		)
+		s.SendMessage(chatID, confirmText)
+	}
 }
 
 // handlePositionDetailCommand handles /position <symbol>

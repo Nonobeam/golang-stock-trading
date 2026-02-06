@@ -17,7 +17,7 @@ import sys
 import os
 import argparse
 import logging
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from typing import Dict, List
 import json
 
@@ -137,6 +137,35 @@ def generate_daily_report(conn, user_id: int = 1, report_date: str = None) -> st
     
     logger.info(f"Generating daily report for user {user_id} on {report_date}")
     
+    # ===== DRAWDOWN RISK MANAGEMENT =====
+    # Check current drawdown before generating signals
+    from position_sizing.drawdown_manager import DrawdownManager
+    from validation.portfolio_metrics import PortfolioEquityTracker
+    
+    drawdown_mgr = DrawdownManager(db_connection=conn)
+    drawdown_status = drawdown_mgr.get_drawdown_status(user_id)
+    
+    logger.info(f"Portfolio Status: {drawdown_status['risk_level']} - {drawdown_status['drawdown_percent']} drawdown")
+    logger.info(f"Trading allowed: {drawdown_status['trading_allowed']} - Multiplier: {drawdown_status['multiplier']}")
+    
+    # Snapshot previous day's equity
+    tracker = PortfolioEquityTracker(db_connection=conn)
+    try:
+        yesterday = date.fromisoformat(report_date) - timedelta(days=1)
+        tracker.save_equity_snapshot(user_id, yesterday)
+        logger.info(f"Equity snapshot saved for {yesterday}")
+    except Exception as e:
+        logger.warning(f"Failed to save equity snapshot: {e}")
+        
+    # Calculate current equity for capacity checks
+    account_value = 0.0
+    try:
+        equity_data = tracker.calculate_current_equity(user_id)
+        account_value = float(equity_data['total_equity'])
+        logger.info(f"Current account value for capacity checks: {format_number(account_value)} VND")
+    except Exception as e:
+        logger.error(f"Failed to calculate current equity: {e}")
+    
     # Initialize managers
     pm = PositionManager(conn)
     sg = SignalGenerator(user_id=user_id)
@@ -152,6 +181,17 @@ def generate_daily_report(conn, user_id: int = 1, report_date: str = None) -> st
     report_lines.append("=" * 100)
     report_lines.append(f"DAILY POSITION REPORT - {report_date}")
     report_lines.append(f"User ID: {user_id} | Active Positions: {len(positions)}")
+    report_lines.append(f"Total Equity: {format_number(account_value)} VND")
+    
+    # Add drawdown risk status
+    risk_indicator = {
+        'NORMAL': '✅',
+        'CAUTION': '⚠️',
+        'WARNING': '🟠',
+        'EMERGENCY': '🔴'
+    }.get(drawdown_status['risk_level'], '⚪')
+    
+    report_lines.append(f"Portfolio Status: {risk_indicator} {drawdown_status['risk_level']} | Drawdown: {drawdown_status['drawdown_percent']} | Position Sizing: {int(drawdown_status['multiplier']*100)}%")
     report_lines.append("=" * 100)
     report_lines.append("")
     
@@ -217,6 +257,31 @@ def generate_daily_report(conn, user_id: int = 1, report_date: str = None) -> st
                         status = f"({distance:+.2f}% away)"
                     
                     report_lines.append(f"  T{target_num}: {format_number(target_price)} VND {status}")
+
+            # Capacity Check
+            if account_value > 0:
+                report_lines.append(f"\nCapacity Status:")
+                capacity = pm.check_buying_capacity(ticker, current_price, account_value, user_id)
+                
+                if capacity['at_limit']:
+                    report_lines.append(f"  ⚠️ AT LIMIT: {capacity['limit_reason']}")
+                    report_lines.append(f"  Max Buying Capability: 0 shares")
+                else:
+                    max_shares = capacity['max_buyable_shares']
+                    rem_val = capacity['remaining_value_capacity']
+                    report_lines.append(f"  ✅ Within Limits")
+                    report_lines.append(f"  Buying Capacity: {max_shares} shares (~{format_number(rem_val)} VND)")
+                    
+                # Show utilization
+                alloc_pct = (capacity['current_position_value'] / account_value) * 100
+                alloc_limit = 20.0 # 20% limit
+                
+                status_note = ""
+                if alloc_pct >= 18.0 and not capacity['at_limit']:
+                    status_note = " (⚠️ NEAR LIMIT)"
+                    
+                report_lines.append(f"  Portfolio Allocation: {alloc_pct:.1f}% / {alloc_limit}%{status_note}")
+
         else:
             report_lines.append(f"❌ Current price not available")
             current_price = None
@@ -241,7 +306,8 @@ def generate_daily_report(conn, user_id: int = 1, report_date: str = None) -> st
                     date=report_date,
                     current_price=current_price,
                     db_connection=conn,
-                    user_id=user_id
+                    user_id=user_id,
+                    account_value=account_value
                 )
                 
                 signal = signal_dict['signal']

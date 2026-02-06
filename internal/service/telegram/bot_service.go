@@ -19,6 +19,7 @@ import (
 	"github.com/nonobeam/golang-stock-trading/internal/logger"
 	mlconfig "github.com/nonobeam/golang-stock-trading/internal/ml/config"
 	"github.com/nonobeam/golang-stock-trading/internal/service"
+	positionsvc "github.com/nonobeam/golang-stock-trading/internal/service/position"
 	"github.com/nonobeam/golang-stock-trading/internal/vn"
 	"github.com/nonobeam/golang-stock-trading/proto/ml"
 )
@@ -46,6 +47,7 @@ type BotService struct {
 	positionTracker  PositionTracker
 	restartHandler   RestartHandler
 	positionRepo     *repository.PositionRepository
+	positionSvc      *positionsvc.Service
 	marketDataSvc    *service.MarketDataService
 	watchlistRepo    *repository.WatchlistRepository
 	
@@ -193,6 +195,7 @@ func (s *BotService) handleCommand(msg *tgbotapi.Message) {
 			"/watch &lt;symbol&gt; - Add to watchlist\n" +
 			"/unwatch &lt;symbol&gt; - Remove from watchlist\n\n" +
 			"<b>Portfolio:</b>\n" +
+			"/buy &lt;symbol&gt; &lt;qty&gt; &lt;price&gt; [date] - Record purchase\n" +
 			"/risk - Show current risk status\n" +
 			"/limits - Show all risk limits\n" +
 			"/positions - List active positions\n" +
@@ -276,6 +279,8 @@ func (s *BotService) handleCommand(msg *tgbotapi.Message) {
 		}
 		
 		s.SendMessage(chatID, fmt.Sprintf("🗑 Removed <code>%s</code> from your watchlist.", symbol))
+	case "buy":
+		s.handleBuyCommand(msg)
 	case "risk":
 		s.handleRiskCommand(msg)
 	case "limits":
@@ -288,6 +293,12 @@ func (s *BotService) handleCommand(msg *tgbotapi.Message) {
 		s.handleEditPositionCommand(msg)
 	case "position":
 		s.handlePositionDetailCommand(msg)
+	case "settlement":
+		// TODO: Implement settlement status command
+		s.SendMessage(msg.Chat.ID, "Settlement status command not yet implemented")
+	case "lockedrisk":
+		// TODO: Implement locked risk command
+		s.SendMessage(msg.Chat.ID, "Locked risk command not yet implemented")
 	case "restart":
 		s.handleRestartCommand(msg)
 	}
@@ -644,9 +655,15 @@ func (s *BotService) handleLimitsCommand(msg *tgbotapi.Message) {
 
 func (s *BotService) handlePositionsCommand(msg *tgbotapi.Message) {
 	if s.positionTracker == nil {
-	chatID := msg.Chat.ID
-		s.SendMessage(chatID, "Position tracker not configured")
+		s.SendMessage(msg.Chat.ID, "Position tracker not configured")
 		return
+	}
+
+	// Get user context for capital
+	user, err := s.getUserContext(msg.Chat.ID)
+	capital := 0.0
+	if err == nil && user.InitialCapital > 0 {
+		capital = user.InitialCapital
 	}
 
 	positions := s.positionTracker.GetActivePositions()
@@ -659,16 +676,33 @@ func (s *BotService) handlePositionsCommand(msg *tgbotapi.Message) {
 	var msgBuilder strings.Builder
 	msgBuilder.WriteString(fmt.Sprintf("<b>Active Positions</b> (%d)\n\n", len(positions)))
 
+	totalAllocated := 0.0
+
 	for _, pos := range positions {
 		pnlStatus := "(+)"
 		if pos.RMultiple < 0 {
 			pnlStatus = "(-)"
 		}
 
+		// Calculate Allocation
+		marketVal := pos.CurrentPrice * float64(pos.PositionSize)
+		allocPct := 0.0
+		allocStr := ""
+		if capital > 0 {
+			allocPct = (marketVal / capital) * 100
+			totalAllocated += allocPct
+			allocWarning := ""
+			if allocPct > 20.0 {
+				allocWarning = " ⚠️"
+			}
+			allocStr = fmt.Sprintf(" | Alloc: %.1f%%%s", allocPct, allocWarning)
+		}
+
 		msgBuilder.WriteString(fmt.Sprintf(
 			"<b>%s</b> %s\n"+
 				"  Entry: %s | Current: %s\n"+
-				"  P&L: %+.2fR %s | Progress: %.0f%%\n\n",
+				"  P&L: %+.2fR %s | Progress: %.0f%%\n"+
+				"  Size: %d shares%s\n\n",
 			pos.Symbol,
 			pnlStatus,
 			formatPrice(pos.EntryPrice),
@@ -676,7 +710,13 @@ func (s *BotService) handlePositionsCommand(msg *tgbotapi.Message) {
 			pos.RMultiple,
 			pnlStatus,
 			pos.TargetProgress,
+			pos.PositionSize,
+			allocStr,
 		))
+	}
+
+	if capital > 0 {
+		msgBuilder.WriteString(fmt.Sprintf("<b>Total Allocation:</b> %.1f%%\n", totalAllocated))
 	}
 
 	msgBuilder.WriteString("<i>Use /position <symbol> for details</i>")
@@ -699,9 +739,17 @@ func (s *BotService) SetRestartHandler(rh RestartHandler) {
 	s.restartHandler = rh
 }
 
+// SetPositionService sets the position service
+func (s *BotService) SetPositionService(svc *positionsvc.Service) {
+	s.positionSvc = svc
+}
+
 // SetPositionRepository sets the position repository for querying positions
 func (s *BotService) SetPositionRepository(repo *repository.PositionRepository) {
 	s.positionRepo = repo
+	if s.positionSvc == nil {
+		s.positionSvc = positionsvc.NewService(repo)
+	}
 }
 
 // SetMarketDataService sets the market data service for price fetching
