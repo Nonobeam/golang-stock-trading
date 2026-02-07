@@ -87,7 +87,7 @@ func main() {
 	}
 
 	if *dryRun {
-		fmt.Println("DRY RUN MODE - No changes will be made\n")
+		fmt.Println("DRY RUN MODE - No changes will be made")
 		// In a real implementation, we'd query and show what would change
 		fmt.Println("Would update settlement statuses for all open positions")
 		fmt.Println("Use without --dry-run to apply changes")
