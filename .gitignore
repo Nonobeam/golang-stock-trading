@@ -49,7 +49,7 @@ AGENTS.md
 CLAUDE.md
 openspec/
 docs/
-.agent/
+.agent
 bin/
 
 
