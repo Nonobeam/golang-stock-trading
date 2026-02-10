@@ -45,9 +45,11 @@ Thumbs.db
 # Claude Code
 .claude/
 PROJECT_STRUCTURE.md
+AGENTS.md
+CLAUDE.md
 openspec/
 docs/
-./agent
+.agent/
 bin/
 
 
