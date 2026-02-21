@@ -184,16 +184,17 @@ def _send_telegram(messages: List[str]) -> None:
 # Main entry point
 # ──────────────────────────────────────────────────────────────────
 
-def run(pred_date: Optional[str] = None, user_id: int = 1) -> List[str]:
+def run(pred_date: Optional[str] = None, user_id: int = 1, skip_telegram: bool = False) -> List[str]:
     """
     Run the full weekly portfolio selection pipeline.
 
     Args:
-        pred_date: Date (YYYY-MM-DD) to use for predictions. Defaults to today.
-        user_id:   User ID to load current positions for. Defaults to 1.
+        pred_date:      Date (YYYY-MM-DD) to use for predictions. Defaults to today.
+        user_id:        User ID to load current positions for. Defaults to 1.
+        skip_telegram:  If True, do NOT send messages to Telegram (caller handles delivery).
 
     Returns:
-        List of Telegram message strings (also sent to Telegram automatically).
+        List of Telegram message strings.
     """
     run_date = pred_date or date.today().isoformat()
     week_start = _get_monday(run_date)
@@ -208,11 +209,12 @@ def run(pred_date: Optional[str] = None, user_id: int = 1) -> List[str]:
     predictions = _load_predictions(tickers, run_date)
     if len(predictions) < 10:
         msg = (
-            f"⚠️ Portfolio scan aborted: insufficient predictions available "
+            f"Portfolio scan aborted: insufficient predictions available "
             f"({len(predictions)}/50). Check ML pipeline."
         )
         logger.error(msg)
-        _send_telegram([msg])
+        if not skip_telegram:
+            _send_telegram([msg])
         return [msg]
 
     # 3. Load floor probabilities (proxy from p10)
@@ -257,8 +259,9 @@ def run(pred_date: Optional[str] = None, user_id: int = 1) -> List[str]:
     # 11. Save to database
     _save_selections(week_start, selected, near_misses)
 
-    # 12. Send Telegram
-    _send_telegram(messages)
+    # 12. Send Telegram (unless caller handles delivery)
+    if not skip_telegram:
+        _send_telegram(messages)
 
     logger.info(f"Weekly portfolio selection complete for week {week_start}")
     return messages

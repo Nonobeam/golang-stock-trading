@@ -132,10 +132,6 @@ func Load() (*Config, error) {
 	viper.SetDefault("SCANNER_MIN_ALERT_SCORE", 9)
 	viper.SetDefault("SCANNER_MIN_BARS", 60)
 
-	// ML service path defaults (override in .env for production)
-	viper.SetDefault("ML_SERVICE_DIR", "./ml-service")
-	viper.SetDefault("ML_PYTHON_PATH", "./ml-service/venv/Scripts/python.exe")
-
 	cfg = &Config{
 		AppName:  viper.GetString("APP_NAME"),
 		AppEnv:   viper.GetString("APP_ENV"),
@@ -189,9 +185,6 @@ func Load() (*Config, error) {
 		ScannerMinScore:      viper.GetInt("SCANNER_MIN_SCORE"),
 		ScannerMinAlertScore: viper.GetInt("SCANNER_MIN_ALERT_SCORE"),
 		ScannerMinBars:       viper.GetInt("SCANNER_MIN_BARS"),
-
-		MLServiceDir: viper.GetString("ML_SERVICE_DIR"),
-		MLPythonPath: viper.GetString("ML_PYTHON_PATH"),
 	}
 
 	return cfg, nil

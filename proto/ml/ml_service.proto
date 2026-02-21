@@ -151,8 +151,9 @@ message RunWeeklyPortfolioRequest {
 
 // Response for weekly portfolio selection run
 message RunWeeklyPortfolioResponse {
-    bool   success       = 1;       // Whether the run completed successfully
-    string pred_date     = 2;       // Actual prediction date used
-    int32  messages_sent = 3;       // Number of Telegram messages sent by the pipeline
-    string error_message = 4;       // Error message if success=false
+    bool   success         = 1;       // Whether the run completed successfully
+    string pred_date       = 2;       // Actual prediction date used
+    int32  messages_sent   = 3;       // Number of report messages generated
+    string error_message   = 4;       // Error message if success=false
+    repeated string report_messages = 5; // The formatted report strings — Go sends these to Telegram
 }

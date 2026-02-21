@@ -45,7 +45,7 @@ func (s *BotService) handleScanCommand(msg *tgbotapi.Message) {
 		dateDisplay = "latest available"
 	}
 	s.SendMessage(chatID, fmt.Sprintf(
-		"🔍 <b>Portfolio Scan Started</b>\n\n"+
+		"<b>Portfolio Scan Started</b>\n\n"+
 			"Prediction date: <code>%s</code>\n\n"+
 			"Running the full pipeline (filter → score → optimize → compare)...\n"+
 			"This usually takes 10–30 seconds.",
@@ -71,7 +71,7 @@ func (s *BotService) handleScanCommand(msg *tgbotapi.Message) {
 		if err != nil {
 			logger.Error().Err(err).Msg("RunWeeklyPortfolio gRPC call failed")
 			s.SendMessage(cid, fmt.Sprintf(
-				"❌ <b>Portfolio Scan Failed</b>\n\n"+
+				"<b>Portfolio Scan Failed</b>\n\n"+
 					"Elapsed: %s\n"+
 					"Error: %s\n\n"+
 					"<i>Please ensure the ML service is running.</i>",
@@ -83,7 +83,7 @@ func (s *BotService) handleScanCommand(msg *tgbotapi.Message) {
 		if !resp.Success {
 			logger.Error().Str("error", resp.ErrorMessage).Msg("RunWeeklyPortfolio returned failure")
 			s.SendMessage(cid, fmt.Sprintf(
-				"❌ <b>Portfolio Scan Failed</b>\n\n"+
+				"<b>Portfolio Scan Failed</b>\n\n"+
 					"Elapsed: %s\nDate: <code>%s</code>\n"+
 					"Error: %s",
 				elapsed, resp.PredDate, resp.ErrorMessage,
@@ -97,14 +97,17 @@ func (s *BotService) handleScanCommand(msg *tgbotapi.Message) {
 			Int32("messages_sent", resp.MessagesSent).
 			Msg("Portfolio scan completed successfully")
 
-		// The Python selector already sent the detailed Telegram report.
-		// We just send a brief confirmation here.
+		// Send each report message that Python built — Go is the Telegram relay.
+		for _, reportMsg := range resp.ReportMessages {
+			s.SendMessage(cid, reportMsg)
+		}
+
+		// Brief completion summary
 		s.SendMessage(cid, fmt.Sprintf(
-			"✅ <b>Portfolio Scan Complete</b>\n\n"+
+			"<b>Portfolio Scan Complete</b>\n\n"+
 				"Date: <code>%s</code>\n"+
-				"Elapsed: %s\n\n"+
-				"<i>The full report has been sent above by the ML service (%d message(s)).</i>",
-			resp.PredDate, elapsed, resp.MessagesSent,
+				"Elapsed: %s",
+			resp.PredDate, elapsed,
 		))
 	}(chatID)
 }

@@ -227,8 +227,9 @@ class MLPredictionServicer(ml_service_pb2_grpc.MLPredictionServiceServicer):
 
         If request.pred_date is empty, the most recent prediction date
         available in the database is used (same behaviour as the cron script).
-        The portfolio selector sends its own Telegram messages; we just return
-        a count + success flag.
+
+        Report messages are returned in the response — the Go bot sends them
+        to Telegram directly, so no Telegram credentials are needed here.
         """
         pred_date = request.pred_date or None
 
@@ -241,13 +242,16 @@ class MLPredictionServicer(ml_service_pb2_grpc.MLPredictionServiceServicer):
             else:
                 logger.info(f"RunWeeklyPortfolio: ad-hoc run for date {pred_date}")
 
-            messages = selector.run(pred_date=pred_date)
-            logger.info(f"RunWeeklyPortfolio: complete. {len(messages)} message(s) sent.")
+            # selector.run() builds + would normally self-send Telegram messages.
+            # We skip the Telegram send here and return the messages to Go instead.
+            messages = selector.run(pred_date=pred_date, skip_telegram=True)
+            logger.info(f"RunWeeklyPortfolio: complete. {len(messages)} message(s) to relay.")
 
             return ml_service_pb2.RunWeeklyPortfolioResponse(
                 success=True,
                 pred_date=pred_date,
                 messages_sent=len(messages),
+                report_messages=messages,
             )
 
         except Exception as e:

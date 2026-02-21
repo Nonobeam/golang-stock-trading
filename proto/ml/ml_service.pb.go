@@ -1050,13 +1050,14 @@ func (x *RunWeeklyPortfolioRequest) GetPredDate() string {
 
 // Response for weekly portfolio selection run
 type RunWeeklyPortfolioResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Success       bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`                               // Whether the run completed successfully
-	PredDate      string                 `protobuf:"bytes,2,opt,name=pred_date,json=predDate,proto3" json:"pred_date,omitempty"`              // Actual prediction date used
-	MessagesSent  int32                  `protobuf:"varint,3,opt,name=messages_sent,json=messagesSent,proto3" json:"messages_sent,omitempty"` // Number of Telegram messages sent by the pipeline
-	ErrorMessage  string                 `protobuf:"bytes,4,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`  // Error message if success=false
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	Success        bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`                                    // Whether the run completed successfully
+	PredDate       string                 `protobuf:"bytes,2,opt,name=pred_date,json=predDate,proto3" json:"pred_date,omitempty"`                   // Actual prediction date used
+	MessagesSent   int32                  `protobuf:"varint,3,opt,name=messages_sent,json=messagesSent,proto3" json:"messages_sent,omitempty"`      // Number of report messages generated
+	ErrorMessage   string                 `protobuf:"bytes,4,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`       // Error message if success=false
+	ReportMessages []string               `protobuf:"bytes,5,rep,name=report_messages,json=reportMessages,proto3" json:"report_messages,omitempty"` // The formatted report strings — Go sends these to Telegram
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *RunWeeklyPortfolioResponse) Reset() {
@@ -1115,6 +1116,13 @@ func (x *RunWeeklyPortfolioResponse) GetErrorMessage() string {
 		return x.ErrorMessage
 	}
 	return ""
+}
+
+func (x *RunWeeklyPortfolioResponse) GetReportMessages() []string {
+	if x != nil {
+		return x.ReportMessages
+	}
+	return nil
 }
 
 var File_proto_ml_ml_service_proto protoreflect.FileDescriptor
@@ -1214,12 +1222,13 @@ const file_proto_ml_ml_service_proto_rawDesc = "" +
 	"\rerror_message\x18\x03 \x01(\tR\ferrorMessage\x12\x16\n" +
 	"\x06status\x18\x04 \x01(\tR\x06status\"8\n" +
 	"\x19RunWeeklyPortfolioRequest\x12\x1b\n" +
-	"\tpred_date\x18\x01 \x01(\tR\bpredDate\"\x9d\x01\n" +
+	"\tpred_date\x18\x01 \x01(\tR\bpredDate\"\xc6\x01\n" +
 	"\x1aRunWeeklyPortfolioResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x1b\n" +
 	"\tpred_date\x18\x02 \x01(\tR\bpredDate\x12#\n" +
 	"\rmessages_sent\x18\x03 \x01(\x05R\fmessagesSent\x12#\n" +
-	"\rerror_message\x18\x04 \x01(\tR\ferrorMessage2\x8f\x03\n" +
+	"\rerror_message\x18\x04 \x01(\tR\ferrorMessage\x12'\n" +
+	"\x0freport_messages\x18\x05 \x03(\tR\x0ereportMessages2\x8f\x03\n" +
 	"\x13MLPredictionService\x122\n" +
 	"\aPredict\x12\x12.ml.PredictRequest\x1a\x13.ml.PredictResponse\x12;\n" +
 	"\n" +
