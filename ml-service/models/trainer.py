@@ -230,3 +230,44 @@ class ModelTrainer:
         model = xgb.Booster()
         model.load_model(file_path)
         return model
+
+    def train_all_models(self, days=1000):
+        from data.loader import load_features_for_training, get_feature_columns
+        df = load_features_for_training(self.ticker)
+        
+        if len(df) < 200:
+            raise ValueError(f"Not enough data for {self.ticker}, found {len(df)} rows")
+            
+        feature_cols = get_feature_columns()
+        hyperparams = {'n_estimators': 200, 'max_depth': 5}
+        
+        actual_days = min(len(df), days)
+        test_size = max(int(actual_days * 0.1), 1)
+        val_size = max(int(actual_days * 0.1), 1)
+        train_size = actual_days - val_size - test_size
+        
+        models, metrics = train_all_quantiles(
+            df, feature_cols, hyperparams, 
+            train_size, val_size, test_size, horizons=[1]
+        )
+        
+        results = {}
+        for q in ['p10', 'p50', 'p90']:
+            q_model_key = f"{q}_1d"
+            if q_model_key in models:
+                results[q] = {
+                    'model': models[q_model_key],
+                    'mae': metrics['quantiles'][q_model_key]['val_mae']
+                }
+                
+        if '1d' in metrics['train_dates']:
+            t_start, t_end = metrics['train_dates']['1d']
+            v_start, v_end = metrics['val_dates']['1d']
+            results['train_dates'] = {'start': t_start, 'end': t_end, 'days': train_size}
+            results['val_dates'] = {'start': v_start, 'end': v_end}
+            
+        return results
+
+    def save_model(self, model, quantile, timestamp, filepath):
+        os.makedirs(os.path.dirname(filepath), exist_ok=True)
+        model.save_model(filepath)

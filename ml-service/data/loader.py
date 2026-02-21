@@ -165,3 +165,18 @@ class DataLoader:
     def get_feature_columns(self):
         """Wrapper for get_feature_columns function"""
         return get_feature_columns()
+
+    @staticmethod
+    def get_active_tickers(target_date=None):
+        """Get all active tickers from the last 7 days (relative to target_date)"""
+        from db.connection import get_connection
+        from db.queries import GET_ALL_ACTIVE_TICKERS
+        
+        conn = get_connection()
+        try:
+            with conn.cursor() as cursor:
+                cursor.execute(GET_ALL_ACTIVE_TICKERS, (target_date,))
+                data = cursor.fetchall()
+            return [row['ticker'] for row in data]
+        finally:
+            conn.close()

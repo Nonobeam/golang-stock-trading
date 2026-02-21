@@ -43,20 +43,25 @@ class PredictionGenerator:
             for ticker in tickers:
                 try:
                     # Predict for the given date (using data up to 'date')
-                    p10, p50, p90, confidence = self.predictor.predict_for_date(ticker, date)
+                    predictions = self.predictor.predict_for_date(ticker, date)
                     model_version = self.predictor.get_model_version(ticker)
                     
                     # Target date is the next trading day. 
                     # Ideally we should use a trading calendar, but for now assuming T+1
                     target_date = (datetime.strptime(date, '%Y-%m-%d') + timedelta(days=1)).strftime('%Y-%m-%d')
                     
-                    cursor.execute(SAVE_PREDICTION, (
-                        ticker, date, target_date, 1, # horizon 1 day
-                        p10, p50, p90, confidence, model_version
-                    ))
+                    for horizon, preds in predictions.items():
+                        cursor.execute(SAVE_PREDICTION, (
+                            ticker, date, target_date, horizon,
+                            preds['p10'], preds['p50'], preds['p90'], preds['confidence'], model_version
+                        ))
                     conn.commit()
                     success_count += 1
-                    logger.info(f"Generated prediction for {ticker} on {date}: p50={p50:.4f}, conf={confidence:.2f}")
+                    
+                    if 1 in predictions:
+                        logger.info(f"Generated prediction for {ticker} on {date}: p50={predictions[1]['p50']:.4f}, conf={predictions[1]['confidence']:.2f}")
+                    else:
+                        logger.info(f"Generated predictions for {ticker} on {date}")
                     
                 except Exception as e:
                     conn.rollback() # Rollback transaction for this ticker
@@ -70,15 +75,77 @@ class PredictionGenerator:
         finally:
             DatabaseConnection.return_connection(conn)
 
+    def run_universe_predictions(self, date: str) -> dict:
+        """
+        Generate predictions for all active stocks in the stock_universe table.
+
+        Loads the active universe from the database and calls generate_daily_predictions
+        for all tickers. Tickers that fail prediction are logged but do not abort the run.
+
+        Args:
+            date: Date in YYYY-MM-DD format to generate predictions for.
+
+        Returns:
+            Dict with keys 'success' (count) and 'failed' (list of ticker strings).
+        """
+        from db.connection import get_connection
+
+        conn = get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    'SELECT ticker FROM "stock-trading".stock_universe WHERE is_active = TRUE ORDER BY ticker'
+                )
+                rows = cur.fetchall()
+            universe_tickers = [row["ticker"] for row in rows]
+        except Exception as e:
+            logger.error(f"Failed to load universe for batch predictions: {e}")
+            return {"success": 0, "failed": []}
+        finally:
+            conn.close()
+
+        if not universe_tickers:
+            logger.warning("No active tickers found in stock_universe")
+            return {"success": 0, "failed": []}
+
+        logger.info(f"Running universe predictions for {len(universe_tickers)} stocks on {date}")
+
+        success_tickers: list = []
+        failed_tickers:  list = []
+
+        for ticker in universe_tickers:
+            try:
+                self.generate_daily_predictions([ticker], date)
+                success_tickers.append(ticker)
+            except Exception as e:
+                logger.error(f"Universe prediction failed for {ticker} on {date}: {e}")
+                failed_tickers.append(ticker)
+
+        result = {"success": len(success_tickers), "failed": failed_tickers}
+        logger.info(
+            f"Universe predictions complete: {result['success']}/{len(universe_tickers)} succeeded, "
+            f"{len(failed_tickers)} failed"
+        )
+        return result
+
+
 if __name__ == "__main__":
     # Simple CLI
     import sys
     if len(sys.argv) < 3:
         print("Usage: python prediction_generator.py <ticker> <date>")
+        print("       python prediction_generator.py --universe")
         sys.exit(1)
         
-    ticker = sys.argv[1]
-    date = sys.argv[2]
-    
-    generator = PredictionGenerator()
-    generator.generate_daily_predictions([ticker], date)
+    if len(sys.argv) == 3:
+        ticker = sys.argv[1]
+        date = sys.argv[2]
+        generator = PredictionGenerator()
+        generator.generate_daily_predictions([ticker], date)
+
+    elif len(sys.argv) == 2 and sys.argv[1] == "--universe":
+        # Run predictions for all active universe stocks
+        date_today = datetime.now().strftime("%Y-%m-%d")
+        generator = PredictionGenerator()
+        result = generator.run_universe_predictions(date_today)
+        print(f"Universe predictions: {result}")

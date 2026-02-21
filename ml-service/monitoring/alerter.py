@@ -33,7 +33,7 @@ class Alerter:
             True if sent successfully
         """
         if not self.bot_token or not self.chat_id:
-            logger.info(f"Alert ({level}) skipped (no credentials): {message}")
+            logger.info(f"Alert ({level}) skipped (no credentials). Message length: {len(message)}")
             return False
             
         try:

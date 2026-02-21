@@ -12,6 +12,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from data.loader import DataLoader
 from daily.prediction_generator import PredictionGenerator
+from monitoring.alerter import alerter
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -31,16 +32,18 @@ def main():
     logger.info(f"Starting prediction generation for {target_date}")
     
     try:
-        tickers = DataLoader.get_active_tickers()
-        logger.info(f"Found {len(tickers)} active tickers")
+        tickers = DataLoader.get_active_tickers(target_date)
+        logger.info(f"Found {len(tickers)} active tickers for date {target_date}")
         
         generator = PredictionGenerator()
         generator.generate_daily_predictions(tickers, target_date)
         
         logger.info("Daily predictions completed")
+        alerter.send_alert(f"✅ Daily Predictions generation completed.\nProcessed {len(tickers)} active tickers for {target_date}.", level="INFO")
         
     except Exception as e:
         logger.error(f"Daily predictions failed: {e}")
+        alerter.send_alert(f"❌ Daily Predictions failed for {target_date}.\nError: {e}", level="CRITICAL")
         sys.exit(1)
 
 if __name__ == "__main__":

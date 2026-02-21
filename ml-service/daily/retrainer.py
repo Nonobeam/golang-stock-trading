@@ -139,7 +139,7 @@ class Retrainer:
                 }
                 
                 cursor.execute(SAVE_MODEL_METADATA, (
-                    model_id, ticker, q,
+                    model_id, ticker, q, 1, # Adding explicit horizon=1
                     training_date, 
                     results['train_dates']['start'], results['train_dates']['end'], results['train_dates']['days'],
                     results['val_dates']['start'], results['val_dates']['end'],

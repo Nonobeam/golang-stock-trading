@@ -24,6 +24,8 @@ import json
 # Add ml-service to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)) + '/..')
 
+from monitoring.alerter import alerter
+
 from db.connection import get_connection
 from position_manager.manager import PositionManager
 from signals.generator import SignalGenerator
@@ -385,6 +387,10 @@ def main():
             print(f"✅ Report saved to {args.output}")
         else:
             print(report)
+            
+        # Send Telegram summary
+        alerts_summary = _extract_alerts_summary(report)
+        alerter.send_alert(f"✅ Daily Signals generation completed for {args.date or date.today().isoformat()}.\n\n*Alerts Summary:*\n{alerts_summary}", level="INFO")
         
         conn.close()
         return 0
@@ -392,8 +398,23 @@ def main():
     except Exception as e:
         logger.error(f"Failed to generate daily report: {e}", exc_info=True)
         print(f"❌ Error: {str(e)}")
+        alerter.send_alert(f"❌ Daily Signals generation failed.\nError: {e}", level="CRITICAL")
         return 1
 
+def _extract_alerts_summary(report_text: str) -> str:
+    """Extract just the alerts portion from the full report."""
+    try:
+        parts = report_text.split("ALERTS SUMMARY")
+        if len(parts) > 1:
+            alerts_section = parts[1].split("=" * 100)[1].strip()
+            # Remove the "Report generated at..." footer if present
+            footer_idx = alerts_section.find("Report generated at")
+            if footer_idx > 0:
+                alerts_section = alerts_section[:footer_idx].strip()
+            return alerts_section
+    except:
+        pass
+    return "Could not parse alerts summary."
 
 if __name__ == '__main__':
     sys.exit(main())
