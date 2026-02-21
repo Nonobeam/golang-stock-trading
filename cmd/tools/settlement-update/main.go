@@ -108,7 +108,7 @@ func main() {
 	fmt.Printf("Still locked: %d\n", result.StillLocked)
 
 	if len(result.Errors) > 0 {
-		fmt.Printf("\n⚠️  Errors encountered: %d\n", len(result.Errors))
+		fmt.Printf("\nErrors encountered: %d\n", len(result.Errors))
 		if *verbose {
 			for i, errMsg := range result.Errors {
 				fmt.Printf("  %d. %s\n", i+1, errMsg)

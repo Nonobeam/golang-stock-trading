@@ -40,7 +40,7 @@ func NewDatabase(cfg *Config) (*Database, error) {
 
 	// Add schema to search_path if specified
 	if cfg.Schema != "" {
-		connStr += fmt.Sprintf(" search_path=%s", cfg.Schema)
+		connStr += fmt.Sprintf(` search_path="%s"`, cfg.Schema)
 	}
 
 	// Open connection

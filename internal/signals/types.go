@@ -15,6 +15,12 @@ const (
 	SignalTypeBreakout      SignalType = "Breakout"
 	SignalTypeCrossover     SignalType = "Crossover"
 	SignalTypeMeanReversion SignalType = "MeanReversion"
+	
+	// Exit signal types for graduated profit-taking
+	SignalTypeSellTarget1   SignalType = "SELL_TARGET1"   // 30% exit at +15% profit
+	SignalTypeSellTarget2   SignalType = "SELL_TARGET2"   // 30% exit at +25% profit
+	SignalTypeSellTarget3   SignalType = "SELL_TARGET3"   // 40% trailing stop exit
+	SignalTypeSellEmergency SignalType = "SELL_EMERGENCY" // Full emergency exit
 )
 
 // ConfidenceLevel represents the confidence in a detected signal.
@@ -294,4 +300,28 @@ type ConsolidationResult struct {
 	DaysInRange       int
 	ResistanceTests   int
 	Issues            []string
+}
+// ExitSignal represents a decision to exit a position (partial or full).
+type ExitSignal struct {
+Symbol          string                 `json:"symbol"`
+Type            SignalType             `json:"type"`
+ExitPrice       float64                `json:"exitPrice"`
+ExitPercentage  int                    `json:"exitPercentage"`
+TargetLevel     int                    `json:"targetLevel"`
+Reason          string                 `json:"reason"`
+Timestamp       time.Time              `json:"timestamp"`
+CurrentPrice    float64                `json:"currentPrice"`
+EntryPrice      float64                `json:"entryPrice"`
+ProfitPercent   float64                `json:"profitPercent"`
+Details         map[string]interface{} `json:"details,omitempty"`
+}
+
+// IsExitSignal returns true if the signal type is an exit signal.
+func IsExitSignal(signalType SignalType) bool {
+switch signalType {
+case SignalTypeSellTarget1, SignalTypeSellTarget2, SignalTypeSellTarget3, SignalTypeSellEmergency:
+return true
+default:
+return false
+}
 }

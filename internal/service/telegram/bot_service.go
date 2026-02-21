@@ -18,6 +18,7 @@ import (
 	"github.com/nonobeam/golang-stock-trading/internal/errors"
 	"github.com/nonobeam/golang-stock-trading/internal/logger"
 	mlconfig "github.com/nonobeam/golang-stock-trading/internal/ml/config"
+	"github.com/nonobeam/golang-stock-trading/internal/regime/ftd"
 	"github.com/nonobeam/golang-stock-trading/internal/service"
 	positionsvc "github.com/nonobeam/golang-stock-trading/internal/service/position"
 	"github.com/nonobeam/golang-stock-trading/internal/vn"
@@ -50,6 +51,7 @@ type BotService struct {
 	positionSvc      *positionsvc.Service
 	marketDataSvc    *service.MarketDataService
 	watchlistRepo    *repository.WatchlistRepository
+	regimeRepo       *ftd.Repository // Add this
 	
 	// Import state and ML client
 	importState ImportState
@@ -301,6 +303,8 @@ func (s *BotService) handleCommand(msg *tgbotapi.Message) {
 		s.SendMessage(msg.Chat.ID, "Locked risk command not yet implemented")
 	case "restart":
 		s.handleRestartCommand(msg)
+	case "ftd":
+		s.handleFTDCommand(msg)
 	}
 }
 
@@ -765,6 +769,70 @@ func (s *BotService) SetWatchlistRepository(repo *repository.WatchlistRepository
 // SetMLClient sets the ML service client for training commands
 func (s *BotService) SetMLClient(client ml.MLPredictionServiceClient) {
 	s.mlClient = client
+}
+
+// SetRegimeRepository sets the regime repository for querying FTD status
+func (s *BotService) SetRegimeRepository(repo *ftd.Repository) {
+	s.regimeRepo = repo
+}
+
+// handleFTDCommand handles the /ftd command
+func (s *BotService) handleFTDCommand(msg *tgbotapi.Message) {
+	if s.regimeRepo == nil {
+		s.SendMessage(msg.Chat.ID, "Market Regime repository not configured")
+		return
+	}
+
+	ctx := context.Background()
+	regime, err := s.regimeRepo.GetLatestMarketRegime(ctx)
+	if err != nil {
+		s.SendMessage(msg.Chat.ID, "Failed to retrieve market regime: "+err.Error())
+		return
+	}
+	
+	if regime == nil {
+		s.SendMessage(msg.Chat.ID, "No market regime data available.")
+		return
+	}
+
+	// Format message
+	statusEmoji := "⚪"
+	if regime.IsFTD {
+		statusEmoji = "🟢" // FTD Confirmed
+	} else if regime.RallyAttemptDay != nil {
+		statusEmoji = "🟡" // Rally Attempt
+	} else {
+		statusEmoji = "🔴" // Downtrend/Correction
+	}
+
+	ftdInfo := "N/A"
+	if regime.IsFTD {
+		ftdInfo = "CONFIRMED"
+	} else if regime.RallyAttemptDay != nil {
+		ftdInfo = fmt.Sprintf("Day %d", *regime.RallyAttemptDay)
+	}
+
+	resp := fmt.Sprintf(
+		"<b>Market Regime Status</b> %s\n\n"+
+			"<b>Date:</b> %s\n"+
+			"<b>Index:</b> %.2f\n"+
+			"<b>Status:</b> %s\n"+
+			"<b>FTD Status:</b> %s\n"+
+			"<b>Distribution Days:</b> %d\n\n"+
+			"<b>Scores:</b>\n"+
+			"• Leader Participation: %d\n"+
+			"• Configured FTD Score: %d\n",
+		statusEmoji,
+		regime.Date.Format("2006-01-02"),
+		regime.IndexValue,
+		statusEmoji, // Simplified status visual
+		ftdInfo,
+		regime.DistributionDayCount,
+		regime.LeaderParticipationScore,
+		0, // TODO: Store computed score in DB or calc on fly?
+	)
+	
+	s.SendMessage(msg.Chat.ID, resp)
 }
 
 // handleRestartCommand handles the /restart command

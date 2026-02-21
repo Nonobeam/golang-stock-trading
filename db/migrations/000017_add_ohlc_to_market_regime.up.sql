@@ -1,0 +1,4 @@
+ALTER TABLE market_regime_tracking 
+ADD COLUMN open DECIMAL(10,2),
+ADD COLUMN high DECIMAL(10,2),
+ADD COLUMN low DECIMAL(10,2);

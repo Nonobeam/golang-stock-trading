@@ -18,6 +18,8 @@ import (
 	"github.com/nonobeam/golang-stock-trading/internal/logger"
 	"github.com/nonobeam/golang-stock-trading/internal/notification"
 	"github.com/nonobeam/golang-stock-trading/internal/redis"
+	"github.com/nonobeam/golang-stock-trading/internal/regime/ftd"
+	"github.com/nonobeam/golang-stock-trading/internal/risk"
 	"github.com/nonobeam/golang-stock-trading/internal/router"
 	"github.com/nonobeam/golang-stock-trading/internal/service"
 	"github.com/nonobeam/golang-stock-trading/internal/service/account"
@@ -28,9 +30,11 @@ import (
 	"github.com/nonobeam/golang-stock-trading/internal/service/otp"
 	"github.com/nonobeam/golang-stock-trading/internal/service/position"
 	"github.com/nonobeam/golang-stock-trading/internal/service/recommendation"
+	"github.com/nonobeam/golang-stock-trading/internal/service/scanner"
 	signalservice "github.com/nonobeam/golang-stock-trading/internal/service/signal"
 	"github.com/nonobeam/golang-stock-trading/internal/service/telegram"
 	"github.com/nonobeam/golang-stock-trading/internal/service/watchlist"
+	"github.com/nonobeam/golang-stock-trading/internal/signals"
 	"github.com/nonobeam/golang-stock-trading/internal/websocket"
 	"github.com/nonobeam/golang-stock-trading/proto/ml"
 	"google.golang.org/grpc"
@@ -64,6 +68,7 @@ func main() {
 	watchlistRepo := repository.NewWatchlistRepository(dbConn)
 	signalRepo := repository.NewSignalHistoryRepository(dbConn)
 	stockPrefRepo := repository.NewStockSignalPrefRepository(dbConn)
+	regimeRepo := ftd.NewRepository(dbConn)
 
 	// === Initialize ML Service Client ===
 	var mlClient ml.MLPredictionServiceClient
@@ -111,6 +116,7 @@ func main() {
 			// Wire repositories and services for status command
 			telegramBot.SetPositionRepository(positionRepo)
 			telegramBot.SetWatchlistRepository(watchlistRepo)
+			telegramBot.SetRegimeRepository(regimeRepo) // Wire FTD status
 			if mlClient != nil {
 				telegramBot.SetMLClient(mlClient)
 			}
@@ -294,6 +300,46 @@ func main() {
 			Msg("Index update received")
 	})
 
+	// === Initialize Live Scanner ===
+	var liveScanner *scanner.LiveScanner
+	if telegramBot != nil {
+		logger.Info().Msg("=== Initializing Live Scanner ===")
+		
+		// 1. Create Signal Scanner (with default strategies)
+		signalScanner := signals.NewDefaultSignalScanner()
+
+		// 2. Create Position Sizer
+		// Note: We use a default capital for alerts, actual trading uses user specific capital
+		positionSizer := risk.NewPositionSizer(100_000_000) // 100M default for estimates
+
+		// 3. Create Live Scanner
+		scannerCfg := &scanner.Config{
+			DB:               dbConn,
+			WSClient:         wsClient,
+			SignalScanner:    signalScanner,
+			PositionSizer:    positionSizer,
+			BotService:       telegramBot,
+			MinScore:         cfg.ScannerMinScore,
+			MinScoreForAlert: cfg.ScannerMinAlertScore,
+			MinBars:          cfg.ScannerMinBars,
+			BarCacheSize:     300, // Keep 300 bars history
+			RegimeRepo:       regimeRepo,
+		}
+
+		liveScanner = scanner.NewLiveScanner(scannerCfg)
+		
+		// Start scanner in background (it will load watchlist and subscribe)
+		go func() {
+			// Wait a bit for WS capability to be ready
+			time.Sleep(2 * time.Second)
+			if err := liveScanner.Start(); err != nil {
+				logger.Error().Err(err).Msg("Failed to start Live Scanner")
+			}
+		}()
+	} else {
+		logger.Warn().Msg("Live Scanner skipped because Telegram Bot is waiting for restart")
+	}
+
 	logger.Info().Msg("Application running. Press Ctrl+C to exit.")
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
@@ -301,6 +347,11 @@ func main() {
 
 	logger.Info().Msg("Shutting down...")
 	cancel()
+	
+	if liveScanner != nil {
+		liveScanner.Stop()
+	}
+	
 	wsClient.Close()
 	if telegramBot != nil {
 		telegramBot.Broadcast("Bot shutting down...")

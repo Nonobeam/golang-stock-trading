@@ -12,6 +12,7 @@ import (
 	"github.com/nonobeam/golang-stock-trading/internal/data"
 	"github.com/nonobeam/golang-stock-trading/internal/db/repository"
 	"github.com/nonobeam/golang-stock-trading/internal/logger"
+	"github.com/nonobeam/golang-stock-trading/internal/regime/ftd"
 	"github.com/nonobeam/golang-stock-trading/internal/risk"
 	"github.com/nonobeam/golang-stock-trading/internal/signals"
 	"github.com/nonobeam/golang-stock-trading/internal/websocket"
@@ -38,10 +39,12 @@ type LiveScanner struct {
 	signalScanner *signals.SignalScanner
 	positionSizer *risk.PositionSizer
 
+
 	// Database repositories
 	signalRepo     *repository.SignalHistoryRepository
 	watchlistRepo  *repository.WatchlistRepository
 	userConfigRepo *repository.UserConfigRepository
+	regimeRepo     *ftd.Repository
 
 	// Telegram notifications
 	botService BotService
@@ -66,8 +69,10 @@ type LiveScanner struct {
 type Config struct {
 	DB               *sql.DB
 	WSClient         *websocket.Client
+
 	SignalScanner    *signals.SignalScanner
 	PositionSizer    *risk.PositionSizer
+	RegimeRepo       *ftd.Repository
 	BotService       BotService // Optional Telegram bot for notifications
 	MinScore         int
 	BarCacheSize     int
@@ -97,9 +102,11 @@ func NewLiveScanner(cfg *Config) *LiveScanner {
 		signalScanner:    cfg.SignalScanner,
 		positionSizer:    cfg.PositionSizer,
 		botService:       cfg.BotService,
+
 		signalRepo:       repository.NewSignalHistoryRepository(cfg.DB),
 		watchlistRepo:    repository.NewWatchlistRepository(cfg.DB),
 		userConfigRepo:   repository.NewUserConfigRepository(cfg.DB),
+		regimeRepo:       cfg.RegimeRepo,
 		minScore:         cfg.MinScore,
 		minBars:          cfg.MinBars,
 		minScoreForAlert: minScoreForAlert,
@@ -276,7 +283,23 @@ func (s *LiveScanner) detectSignals(symbol string) {
 
 		// Calculate position size
 		capital := 100000000.0 // TODO: Get from user config
-		riskPerTrade := 0.02   // TODO: Get from user config
+
+		
+		// Determine risk per trade based on FTD Status
+		riskPerTrade := 0.01 // Default 1%
+		if s.regimeRepo != nil {
+			m, err := s.regimeRepo.GetLatestMarketRegime(s.ctx)
+			if err == nil && m != nil {
+				if m.IsFTD {
+					riskPerTrade = 0.02 // Aggressive 2% (FTD Confirmed)
+					logger.Debug().Msg("Risk increased to 2% (FTD Confirmed)")
+				} else if m.RallyAttemptDay != nil {
+					riskPerTrade = 0.015 // Moderate 1.5% (Rally Attempt)
+				} else {
+					riskPerTrade = 0.005 // Defensive 0.5% (Downtrend)
+				}
+			}
+		}
 
 		posResult, err := s.positionSizer.CalculateSimple(
 			sig.EntryPrice,

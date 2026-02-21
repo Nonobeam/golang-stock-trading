@@ -45,6 +45,11 @@ type Config struct {
 	RedisOTPKey   string
 	RedisOTPTTL   int
 	RedisJWTKey   string
+
+	// Scanner Configuration
+	ScannerMinScore      int
+	ScannerMinAlertScore int
+	ScannerMinBars       int
 }
 
 // TradingConfig holds trading-related parameters that can be overridden via env.
@@ -118,6 +123,11 @@ func Load() (*Config, error) {
 	viper.SetDefault("REDIS_DB", 0)
 	viper.SetDefault("REDIS_OTP_TTL", 300) // 5 minutes
 
+	// Scanner defaults
+	viper.SetDefault("SCANNER_MIN_SCORE", 6)
+	viper.SetDefault("SCANNER_MIN_ALERT_SCORE", 9)
+	viper.SetDefault("SCANNER_MIN_BARS", 60)
+
 	cfg = &Config{
 		AppName:  viper.GetString("APP_NAME"),
 		AppEnv:   viper.GetString("APP_ENV"),
@@ -167,6 +177,10 @@ func Load() (*Config, error) {
 		RedisPassword: viper.GetString("REDIS_PASSWORD"),
 		RedisDB:       viper.GetInt("REDIS_DB"),
 		RedisOTPTTL:   viper.GetInt("REDIS_OTP_TTL"),
+
+		ScannerMinScore:      viper.GetInt("SCANNER_MIN_SCORE"),
+		ScannerMinAlertScore: viper.GetInt("SCANNER_MIN_ALERT_SCORE"),
+		ScannerMinBars:       viper.GetInt("SCANNER_MIN_BARS"),
 	}
 
 	return cfg, nil
