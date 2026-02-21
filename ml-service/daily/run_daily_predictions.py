@@ -49,11 +49,11 @@ def main():
             
         logger.info(f"Daily predictions completed for {total_processed_dates} dates")
         if total_processed_dates > 0:
-            alerter.send_alert(f"✅ Daily Predictions generation completed for {total_processed_dates} dates.", level="INFO")
+            alerter.send_alert(f"Daily Predictions generation completed for {total_processed_dates} dates.", level="INFO")
         
     except Exception as e:
         logger.error(f"Daily predictions failed: {e}")
-        alerter.send_alert(f"❌ Daily Predictions failed.\nError: {e}", level="CRITICAL")
+        alerter.send_alert(f"Daily Predictions failed.\nError: {e}", level="CRITICAL")
         sys.exit(1)
 
 if __name__ == "__main__":

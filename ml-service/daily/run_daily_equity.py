@@ -66,23 +66,23 @@ def run_daily_equity(snapshot_date: str = None):
                 # 1. Save equity snapshot
                 tracker = PortfolioEquityTracker(db_connection=conn)
                 tracker.save_equity_snapshot(user_id, snapshot_date)
-                logger.info(f"✅ Equity snapshot saved for user {user_id}")
+                logger.info(f"Equity snapshot saved for user {user_id}")
                 
                 # 2. Calculate and save R-multiple statistics
                 analytics = RMultipleAnalytics(db_connection=conn)
                 analytics.save_daily_r_statistics(user_id, snapshot_date)
-                logger.info(f"✅ R-multiple statistics saved for user {user_id}")
+                logger.info(f"R-multiple statistics saved for user {user_id}")
                 
                 # 3. Check for drawdown alerts
                 check_drawdown_alert(user_id, db_connection=conn)
-                logger.info(f"✅ Drawdown check completed for user {user_id}")
+                logger.info(f"Drawdown check completed for user {user_id}")
                 
             except Exception as e:
                 logger.error(f"Failed to process user {user_id}: {e}", exc_info=True)
                 continue
         
         logger.info("Daily equity snapshot completed successfully")
-        print(f"\n✅ Daily equity snapshot completed for {len(users)} users on {snapshot_date}")
+        print(f"\nDaily equity snapshot completed for {len(users)} users on {snapshot_date}")
         
     finally:
         conn.close()

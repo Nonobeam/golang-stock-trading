@@ -91,10 +91,10 @@ def plot_equity_curve(user_id: int, days: int = 90, output_path: str = None):
         output_path = f'logs/equity_curve_{user_id}.png'
     
     plt.savefig(output_path, dpi=150, bbox_inches='tight')
-    print(f"✅ Equity curve saved to {output_path}")
-    print(f"📊 Latest equity: {equity[-1]:,.0f} VND")
-    print(f"📈 Peak equity: {peak[-1]:,.0f} VND")
-    print(f"📉 Current drawdown: {drawdown[-1]:.2f}%")
+    print(f"Equity curve saved to {output_path}")
+    print(f"Latest equity: {equity[-1]:,.0f} VND")
+    print(f"Peak equity: {peak[-1]:,.0f} VND")
+    print(f"Current drawdown: {drawdown[-1]:.2f}%")
     
     plt.close()
 

@@ -19,11 +19,12 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	MLPredictionService_Predict_FullMethodName         = "/ml.MLPredictionService/Predict"
-	MLPredictionService_TrainModel_FullMethodName      = "/ml.MLPredictionService/TrainModel"
-	MLPredictionService_GetModelInfo_FullMethodName    = "/ml.MLPredictionService/GetModelInfo"
-	MLPredictionService_Ping_FullMethodName            = "/ml.MLPredictionService/Ping"
-	MLPredictionService_TriggerTraining_FullMethodName = "/ml.MLPredictionService/TriggerTraining"
+	MLPredictionService_Predict_FullMethodName            = "/ml.MLPredictionService/Predict"
+	MLPredictionService_TrainModel_FullMethodName         = "/ml.MLPredictionService/TrainModel"
+	MLPredictionService_GetModelInfo_FullMethodName       = "/ml.MLPredictionService/GetModelInfo"
+	MLPredictionService_Ping_FullMethodName               = "/ml.MLPredictionService/Ping"
+	MLPredictionService_TriggerTraining_FullMethodName    = "/ml.MLPredictionService/TriggerTraining"
+	MLPredictionService_RunWeeklyPortfolio_FullMethodName = "/ml.MLPredictionService/RunWeeklyPortfolio"
 )
 
 // MLPredictionServiceClient is the client API for MLPredictionService service.
@@ -47,6 +48,9 @@ type MLPredictionServiceClient interface {
 	// Trigger training automation (backfill + train)
 	// Simplified interface for Telegram bot automation
 	TriggerTraining(ctx context.Context, in *TriggerTrainingRequest, opts ...grpc.CallOption) (*TriggerTrainingResponse, error)
+	// Run the weekly portfolio selection pipeline
+	// If pred_date is empty, uses the most recent date with ML predictions in the DB
+	RunWeeklyPortfolio(ctx context.Context, in *RunWeeklyPortfolioRequest, opts ...grpc.CallOption) (*RunWeeklyPortfolioResponse, error)
 }
 
 type mLPredictionServiceClient struct {
@@ -107,6 +111,16 @@ func (c *mLPredictionServiceClient) TriggerTraining(ctx context.Context, in *Tri
 	return out, nil
 }
 
+func (c *mLPredictionServiceClient) RunWeeklyPortfolio(ctx context.Context, in *RunWeeklyPortfolioRequest, opts ...grpc.CallOption) (*RunWeeklyPortfolioResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RunWeeklyPortfolioResponse)
+	err := c.cc.Invoke(ctx, MLPredictionService_RunWeeklyPortfolio_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // MLPredictionServiceServer is the server API for MLPredictionService service.
 // All implementations must embed UnimplementedMLPredictionServiceServer
 // for forward compatibility.
@@ -128,6 +142,9 @@ type MLPredictionServiceServer interface {
 	// Trigger training automation (backfill + train)
 	// Simplified interface for Telegram bot automation
 	TriggerTraining(context.Context, *TriggerTrainingRequest) (*TriggerTrainingResponse, error)
+	// Run the weekly portfolio selection pipeline
+	// If pred_date is empty, uses the most recent date with ML predictions in the DB
+	RunWeeklyPortfolio(context.Context, *RunWeeklyPortfolioRequest) (*RunWeeklyPortfolioResponse, error)
 	mustEmbedUnimplementedMLPredictionServiceServer()
 }
 
@@ -152,6 +169,9 @@ func (UnimplementedMLPredictionServiceServer) Ping(context.Context, *PingRequest
 }
 func (UnimplementedMLPredictionServiceServer) TriggerTraining(context.Context, *TriggerTrainingRequest) (*TriggerTrainingResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method TriggerTraining not implemented")
+}
+func (UnimplementedMLPredictionServiceServer) RunWeeklyPortfolio(context.Context, *RunWeeklyPortfolioRequest) (*RunWeeklyPortfolioResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RunWeeklyPortfolio not implemented")
 }
 func (UnimplementedMLPredictionServiceServer) mustEmbedUnimplementedMLPredictionServiceServer() {}
 func (UnimplementedMLPredictionServiceServer) testEmbeddedByValue()                             {}
@@ -264,6 +284,24 @@ func _MLPredictionService_TriggerTraining_Handler(srv interface{}, ctx context.C
 	return interceptor(ctx, in, info, handler)
 }
 
+func _MLPredictionService_RunWeeklyPortfolio_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RunWeeklyPortfolioRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MLPredictionServiceServer).RunWeeklyPortfolio(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MLPredictionService_RunWeeklyPortfolio_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MLPredictionServiceServer).RunWeeklyPortfolio(ctx, req.(*RunWeeklyPortfolioRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // MLPredictionService_ServiceDesc is the grpc.ServiceDesc for MLPredictionService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -290,6 +328,10 @@ var MLPredictionService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "TriggerTraining",
 			Handler:    _MLPredictionService_TriggerTraining_Handler,
+		},
+		{
+			MethodName: "RunWeeklyPortfolio",
+			Handler:    _MLPredictionService_RunWeeklyPortfolio_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

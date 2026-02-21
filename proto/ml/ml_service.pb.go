@@ -1003,6 +1003,120 @@ func (x *TriggerTrainingResponse) GetStatus() string {
 	return ""
 }
 
+// Request for weekly portfolio selection run
+type RunWeeklyPortfolioRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	PredDate      string                 `protobuf:"bytes,1,opt,name=pred_date,json=predDate,proto3" json:"pred_date,omitempty"` // Optional: YYYY-MM-DD. Empty = use latest from DB.
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RunWeeklyPortfolioRequest) Reset() {
+	*x = RunWeeklyPortfolioRequest{}
+	mi := &file_proto_ml_ml_service_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RunWeeklyPortfolioRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RunWeeklyPortfolioRequest) ProtoMessage() {}
+
+func (x *RunWeeklyPortfolioRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_ml_ml_service_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RunWeeklyPortfolioRequest.ProtoReflect.Descriptor instead.
+func (*RunWeeklyPortfolioRequest) Descriptor() ([]byte, []int) {
+	return file_proto_ml_ml_service_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *RunWeeklyPortfolioRequest) GetPredDate() string {
+	if x != nil {
+		return x.PredDate
+	}
+	return ""
+}
+
+// Response for weekly portfolio selection run
+type RunWeeklyPortfolioResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Success       bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`                               // Whether the run completed successfully
+	PredDate      string                 `protobuf:"bytes,2,opt,name=pred_date,json=predDate,proto3" json:"pred_date,omitempty"`              // Actual prediction date used
+	MessagesSent  int32                  `protobuf:"varint,3,opt,name=messages_sent,json=messagesSent,proto3" json:"messages_sent,omitempty"` // Number of Telegram messages sent by the pipeline
+	ErrorMessage  string                 `protobuf:"bytes,4,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`  // Error message if success=false
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RunWeeklyPortfolioResponse) Reset() {
+	*x = RunWeeklyPortfolioResponse{}
+	mi := &file_proto_ml_ml_service_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RunWeeklyPortfolioResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RunWeeklyPortfolioResponse) ProtoMessage() {}
+
+func (x *RunWeeklyPortfolioResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_ml_ml_service_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RunWeeklyPortfolioResponse.ProtoReflect.Descriptor instead.
+func (*RunWeeklyPortfolioResponse) Descriptor() ([]byte, []int) {
+	return file_proto_ml_ml_service_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *RunWeeklyPortfolioResponse) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
+func (x *RunWeeklyPortfolioResponse) GetPredDate() string {
+	if x != nil {
+		return x.PredDate
+	}
+	return ""
+}
+
+func (x *RunWeeklyPortfolioResponse) GetMessagesSent() int32 {
+	if x != nil {
+		return x.MessagesSent
+	}
+	return 0
+}
+
+func (x *RunWeeklyPortfolioResponse) GetErrorMessage() string {
+	if x != nil {
+		return x.ErrorMessage
+	}
+	return ""
+}
+
 var File_proto_ml_ml_service_proto protoreflect.FileDescriptor
 
 const file_proto_ml_ml_service_proto_rawDesc = "" +
@@ -1098,14 +1212,22 @@ const file_proto_ml_ml_service_proto_rawDesc = "" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12#\n" +
 	"\rmodel_version\x18\x02 \x01(\tR\fmodelVersion\x12#\n" +
 	"\rerror_message\x18\x03 \x01(\tR\ferrorMessage\x12\x16\n" +
-	"\x06status\x18\x04 \x01(\tR\x06status2\xba\x02\n" +
+	"\x06status\x18\x04 \x01(\tR\x06status\"8\n" +
+	"\x19RunWeeklyPortfolioRequest\x12\x1b\n" +
+	"\tpred_date\x18\x01 \x01(\tR\bpredDate\"\x9d\x01\n" +
+	"\x1aRunWeeklyPortfolioResponse\x12\x18\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x1b\n" +
+	"\tpred_date\x18\x02 \x01(\tR\bpredDate\x12#\n" +
+	"\rmessages_sent\x18\x03 \x01(\x05R\fmessagesSent\x12#\n" +
+	"\rerror_message\x18\x04 \x01(\tR\ferrorMessage2\x8f\x03\n" +
 	"\x13MLPredictionService\x122\n" +
 	"\aPredict\x12\x12.ml.PredictRequest\x1a\x13.ml.PredictResponse\x12;\n" +
 	"\n" +
 	"TrainModel\x12\x15.ml.TrainModelRequest\x1a\x16.ml.TrainModelResponse\x12;\n" +
 	"\fGetModelInfo\x12\x14.ml.ModelInfoRequest\x1a\x15.ml.ModelInfoResponse\x12)\n" +
 	"\x04Ping\x12\x0f.ml.PingRequest\x1a\x10.ml.PingResponse\x12J\n" +
-	"\x0fTriggerTraining\x12\x1a.ml.TriggerTrainingRequest\x1a\x1b.ml.TriggerTrainingResponseB3Z1github.com/nonobeam/golang-stock-trading/proto/mlb\x06proto3"
+	"\x0fTriggerTraining\x12\x1a.ml.TriggerTrainingRequest\x1a\x1b.ml.TriggerTrainingResponse\x12S\n" +
+	"\x12RunWeeklyPortfolio\x12\x1d.ml.RunWeeklyPortfolioRequest\x1a\x1e.ml.RunWeeklyPortfolioResponseB3Z1github.com/nonobeam/golang-stock-trading/proto/mlb\x06proto3"
 
 var (
 	file_proto_ml_ml_service_proto_rawDescOnce sync.Once
@@ -1119,43 +1241,47 @@ func file_proto_ml_ml_service_proto_rawDescGZIP() []byte {
 	return file_proto_ml_ml_service_proto_rawDescData
 }
 
-var file_proto_ml_ml_service_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
+var file_proto_ml_ml_service_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
 var file_proto_ml_ml_service_proto_goTypes = []any{
-	(*PingRequest)(nil),             // 0: ml.PingRequest
-	(*PingResponse)(nil),            // 1: ml.PingResponse
-	(*PredictRequest)(nil),          // 2: ml.PredictRequest
-	(*PredictResponse)(nil),         // 3: ml.PredictResponse
-	(*HorizonPrediction)(nil),       // 4: ml.HorizonPrediction
-	(*TrainModelRequest)(nil),       // 5: ml.TrainModelRequest
-	(*TrainModelResponse)(nil),      // 6: ml.TrainModelResponse
-	(*ModelInfoRequest)(nil),        // 7: ml.ModelInfoRequest
-	(*ModelInfoResponse)(nil),       // 8: ml.ModelInfoResponse
-	(*ModelInfo)(nil),               // 9: ml.ModelInfo
-	(*ModelMetrics)(nil),            // 10: ml.ModelMetrics
-	(*TriggerTrainingRequest)(nil),  // 11: ml.TriggerTrainingRequest
-	(*TriggerTrainingResponse)(nil), // 12: ml.TriggerTrainingResponse
-	nil,                             // 13: ml.PredictRequest.FeaturesEntry
-	nil,                             // 14: ml.ModelInfo.HyperparametersEntry
+	(*PingRequest)(nil),                // 0: ml.PingRequest
+	(*PingResponse)(nil),               // 1: ml.PingResponse
+	(*PredictRequest)(nil),             // 2: ml.PredictRequest
+	(*PredictResponse)(nil),            // 3: ml.PredictResponse
+	(*HorizonPrediction)(nil),          // 4: ml.HorizonPrediction
+	(*TrainModelRequest)(nil),          // 5: ml.TrainModelRequest
+	(*TrainModelResponse)(nil),         // 6: ml.TrainModelResponse
+	(*ModelInfoRequest)(nil),           // 7: ml.ModelInfoRequest
+	(*ModelInfoResponse)(nil),          // 8: ml.ModelInfoResponse
+	(*ModelInfo)(nil),                  // 9: ml.ModelInfo
+	(*ModelMetrics)(nil),               // 10: ml.ModelMetrics
+	(*TriggerTrainingRequest)(nil),     // 11: ml.TriggerTrainingRequest
+	(*TriggerTrainingResponse)(nil),    // 12: ml.TriggerTrainingResponse
+	(*RunWeeklyPortfolioRequest)(nil),  // 13: ml.RunWeeklyPortfolioRequest
+	(*RunWeeklyPortfolioResponse)(nil), // 14: ml.RunWeeklyPortfolioResponse
+	nil,                                // 15: ml.PredictRequest.FeaturesEntry
+	nil,                                // 16: ml.ModelInfo.HyperparametersEntry
 }
 var file_proto_ml_ml_service_proto_depIdxs = []int32{
-	13, // 0: ml.PredictRequest.features:type_name -> ml.PredictRequest.FeaturesEntry
+	15, // 0: ml.PredictRequest.features:type_name -> ml.PredictRequest.FeaturesEntry
 	4,  // 1: ml.PredictResponse.predictions:type_name -> ml.HorizonPrediction
 	10, // 2: ml.TrainModelResponse.metrics:type_name -> ml.ModelMetrics
 	9,  // 3: ml.ModelInfoResponse.models:type_name -> ml.ModelInfo
-	14, // 4: ml.ModelInfo.hyperparameters:type_name -> ml.ModelInfo.HyperparametersEntry
+	16, // 4: ml.ModelInfo.hyperparameters:type_name -> ml.ModelInfo.HyperparametersEntry
 	10, // 5: ml.ModelInfo.metrics:type_name -> ml.ModelMetrics
 	2,  // 6: ml.MLPredictionService.Predict:input_type -> ml.PredictRequest
 	5,  // 7: ml.MLPredictionService.TrainModel:input_type -> ml.TrainModelRequest
 	7,  // 8: ml.MLPredictionService.GetModelInfo:input_type -> ml.ModelInfoRequest
 	0,  // 9: ml.MLPredictionService.Ping:input_type -> ml.PingRequest
 	11, // 10: ml.MLPredictionService.TriggerTraining:input_type -> ml.TriggerTrainingRequest
-	3,  // 11: ml.MLPredictionService.Predict:output_type -> ml.PredictResponse
-	6,  // 12: ml.MLPredictionService.TrainModel:output_type -> ml.TrainModelResponse
-	8,  // 13: ml.MLPredictionService.GetModelInfo:output_type -> ml.ModelInfoResponse
-	1,  // 14: ml.MLPredictionService.Ping:output_type -> ml.PingResponse
-	12, // 15: ml.MLPredictionService.TriggerTraining:output_type -> ml.TriggerTrainingResponse
-	11, // [11:16] is the sub-list for method output_type
-	6,  // [6:11] is the sub-list for method input_type
+	13, // 11: ml.MLPredictionService.RunWeeklyPortfolio:input_type -> ml.RunWeeklyPortfolioRequest
+	3,  // 12: ml.MLPredictionService.Predict:output_type -> ml.PredictResponse
+	6,  // 13: ml.MLPredictionService.TrainModel:output_type -> ml.TrainModelResponse
+	8,  // 14: ml.MLPredictionService.GetModelInfo:output_type -> ml.ModelInfoResponse
+	1,  // 15: ml.MLPredictionService.Ping:output_type -> ml.PingResponse
+	12, // 16: ml.MLPredictionService.TriggerTraining:output_type -> ml.TriggerTrainingResponse
+	14, // 17: ml.MLPredictionService.RunWeeklyPortfolio:output_type -> ml.RunWeeklyPortfolioResponse
+	12, // [12:18] is the sub-list for method output_type
+	6,  // [6:12] is the sub-list for method input_type
 	6,  // [6:6] is the sub-list for extension type_name
 	6,  // [6:6] is the sub-list for extension extendee
 	0,  // [0:6] is the sub-list for field type_name
@@ -1172,7 +1298,7 @@ func file_proto_ml_ml_service_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_ml_ml_service_proto_rawDesc), len(file_proto_ml_ml_service_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   15,
+			NumMessages:   17,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

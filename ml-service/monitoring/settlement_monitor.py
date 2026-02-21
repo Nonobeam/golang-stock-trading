@@ -255,7 +255,7 @@ class SettlementMonitor:
         validation = self.validate_settlement_transitions()
         report.append("SETTLEMENT VALIDATION")
         report.append("-" * 60)
-        report.append(f"  Status: {'✅ VALID' if validation['valid'] else '❌ ISSUES FOUND'}")
+        report.append(f"  Status: {'VALID' if validation['valid'] else 'ISSUES FOUND'}")
         if validation['issues']:
             report.append("  Issues:")
             for issue in validation['issues']:

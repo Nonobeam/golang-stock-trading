@@ -1,21 +1,19 @@
 package telegram
 
 import (
+	"context"
 	"fmt"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"strings"
 	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
-	"github.com/nonobeam/golang-stock-trading/internal/config"
 	"github.com/nonobeam/golang-stock-trading/internal/logger"
+	pb "github.com/nonobeam/golang-stock-trading/proto/ml"
 )
 
 // handleScanCommand handles the /scan [date] command.
 //
-// It invokes the Python weekly portfolio selection pipeline via exec.Command
+// It invokes the Python weekly portfolio selection pipeline via gRPC
 // and streams the result back to the requester as a Telegram message.
 //
 // Usage:
@@ -25,40 +23,20 @@ import (
 func (s *BotService) handleScanCommand(msg *tgbotapi.Message) {
 	chatID := msg.Chat.ID
 
+	// --- Guard: ML gRPC client must be wired up ---
+	if s.mlClient == nil {
+		s.SendMessage(chatID,
+			"<b>Scan Failed</b>\n\n"+
+				"ML service client is not configured.\n"+
+				"Please contact the administrator.")
+		return
+	}
+
 	// --- Parse optional date argument ---
 	args := strings.Fields(msg.Text)
 	var dateArg string
 	if len(args) >= 2 {
 		dateArg = args[1]
-	}
-
-	// --- Load path config ---
-	cfg := config.Get()
-	pythonPath := cfg.MLPythonPath
-	mlServiceDir := cfg.MLServiceDir
-
-	// Resolve to absolute paths (handles relative paths in config)
-	if !filepath.IsAbs(pythonPath) {
-		if abs, err := filepath.Abs(pythonPath); err == nil {
-			pythonPath = abs
-		}
-	}
-	if !filepath.IsAbs(mlServiceDir) {
-		if abs, err := filepath.Abs(mlServiceDir); err == nil {
-			mlServiceDir = abs
-		}
-	}
-
-	// Sanity check: verify Python binary exists
-	if _, err := os.Stat(pythonPath); err != nil {
-		logger.Error().Err(err).Str("pythonPath", pythonPath).Msg("Python binary not found")
-		s.SendMessage(chatID, fmt.Sprintf(
-			"❌ <b>Scan Failed</b>\n\n"+
-				"Python binary not found at:\n<code>%s</code>\n\n"+
-				"Set <code>ML_PYTHON_PATH</code> in your .env file.",
-			pythonPath,
-		))
-		return
 	}
 
 	// --- Notify user that scan has started ---
@@ -78,53 +56,55 @@ func (s *BotService) handleScanCommand(msg *tgbotapi.Message) {
 	go func(cid int64) {
 		startTime := time.Now()
 
-		// Build command: python -m daily.run_weekly_portfolio [--date DATE]
-		cmdArgs := []string{"-m", "daily.run_weekly_portfolio"}
-		if dateArg != "" {
-			cmdArgs = append(cmdArgs, "--date", dateArg)
-		}
-
-		cmd := exec.Command(pythonPath, cmdArgs...)
-		cmd.Dir = mlServiceDir
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
 
 		logger.Info().
-			Str("cmd", pythonPath).
-			Strs("args", cmdArgs).
-			Str("cwd", mlServiceDir).
-			Msg("Starting portfolio scan")
+			Str("pred_date", dateArg).
+			Msg("Starting portfolio scan via gRPC")
 
-		output, err := cmd.CombinedOutput()
+		resp, err := s.mlClient.RunWeeklyPortfolio(ctx, &pb.RunWeeklyPortfolioRequest{
+			PredDate: dateArg,
+		})
 		elapsed := time.Since(startTime).Round(time.Second)
-		outputStr := strings.TrimSpace(string(output))
 
 		if err != nil {
-			logger.Error().
-				Err(err).
-				Str("output", outputStr).
-				Msg("Portfolio scan failed")
-
-			// Trim output to avoid Telegram 4096 char limit
-			if len(outputStr) > 800 {
-				outputStr = "..." + outputStr[len(outputStr)-800:]
-			}
+			logger.Error().Err(err).Msg("RunWeeklyPortfolio gRPC call failed")
 			s.SendMessage(cid, fmt.Sprintf(
 				"❌ <b>Portfolio Scan Failed</b>\n\n"+
-					"Elapsed: %s\nError: %s\n\n"+
-					"<pre>%s</pre>",
-				elapsed, err.Error(), outputStr,
+					"Elapsed: %s\n"+
+					"Error: %s\n\n"+
+					"<i>Please ensure the ML service is running.</i>",
+				elapsed, err.Error(),
 			))
 			return
 		}
 
-		logger.Info().Dur("elapsed", elapsed).Msg("Portfolio scan completed successfully")
+		if !resp.Success {
+			logger.Error().Str("error", resp.ErrorMessage).Msg("RunWeeklyPortfolio returned failure")
+			s.SendMessage(cid, fmt.Sprintf(
+				"❌ <b>Portfolio Scan Failed</b>\n\n"+
+					"Elapsed: %s\nDate: <code>%s</code>\n"+
+					"Error: %s",
+				elapsed, resp.PredDate, resp.ErrorMessage,
+			))
+			return
+		}
 
-		// The Python script sends its own Telegram messages with the full report.
+		logger.Info().
+			Dur("elapsed", elapsed).
+			Str("pred_date", resp.PredDate).
+			Int32("messages_sent", resp.MessagesSent).
+			Msg("Portfolio scan completed successfully")
+
+		// The Python selector already sent the detailed Telegram report.
 		// We just send a brief confirmation here.
 		s.SendMessage(cid, fmt.Sprintf(
 			"✅ <b>Portfolio Scan Complete</b>\n\n"+
+				"Date: <code>%s</code>\n"+
 				"Elapsed: %s\n\n"+
-				"<i>The full report has been sent above by the ML service.</i>",
-			elapsed,
+				"<i>The full report has been sent above by the ML service (%d message(s)).</i>",
+			resp.PredDate, elapsed, resp.MessagesSent,
 		))
 	}(chatID)
 }

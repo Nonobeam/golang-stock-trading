@@ -49,11 +49,11 @@ def main():
                 continue
         
         logger.info("Daily retraining checks completed")
-        alerter.send_alert(f"✅ Daily ML Retraining completed.\nChecked {len(tickers)} tickers. Retrained {retrained_count} models.\nTarget Date: {target_date}", level="INFO")
+        alerter.send_alert(f"Daily ML Retraining completed.\nChecked {len(tickers)} tickers. Retrained {retrained_count} models.\nTarget Date: {target_date}", level="INFO")
         
     except Exception as e:
         logger.error(f"Daily retraining failed: {e}")
-        alerter.send_alert(f"❌ Daily ML Retraining failed for {target_date}.\nError: {e}", level="CRITICAL")
+        alerter.send_alert(f"Daily ML Retraining failed for {target_date}.\nError: {e}", level="CRITICAL")
         sys.exit(1)
 
 if __name__ == "__main__":

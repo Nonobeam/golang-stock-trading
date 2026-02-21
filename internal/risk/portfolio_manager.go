@@ -469,7 +469,7 @@ func (pm *PortfolioManager) GetDashboardSummary() string {
 
 	// Overall status
 	sb.WriteString(strings.Repeat("=", 70) + "\n")
-	status := "✅ HEALTHY - WITHIN LIMITS"
+	status := "HEALTHY - WITHIN LIMITS"
 	if len(latest.Violations) > 0 {
 		status = "🚨 CRITICAL - IMMEDIATE ACTION REQUIRED"
 	} else if len(latest.Warnings) > 0 {

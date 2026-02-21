@@ -38,7 +38,7 @@ func FormatSettlementStatusMessage(pos *repository.Position, currentDate time.Ti
 			sb.WriteString(fmt.Sprintf("  🔒 Locked: %s VND\n", formatVND(*pos.LockedCapital)))
 		}
 		if pos.LiquidCapital != nil && *pos.LiquidCapital > 0 {
-			sb.WriteString(fmt.Sprintf("  ✅ Liquid: %s VND\n", formatVND(*pos.LiquidCapital)))
+			sb.WriteString(fmt.Sprintf("  Liquid: %s VND\n", formatVND(*pos.LiquidCapital)))
 		}
 	}
 
@@ -83,10 +83,10 @@ func FormatLockedRiskReport(
 	sb.WriteString(fmt.Sprintf("%s %.1f%%\n\n", progressBar, usedPercent))
 
 	// Numbers
-	sb.WriteString(fmt.Sprintf("💼 Account Value: %s VND\n", formatVND(accountValue)))
-	sb.WriteString(fmt.Sprintf("🔒 Total Locked Risk: %s VND\n", formatVND(totalLockedRisk)))
-	sb.WriteString(fmt.Sprintf("📏 Max Allowed (%.0f%%): %s VND\n", threshold*100, formatVND(maxAllowed)))
-	sb.WriteString(fmt.Sprintf("✅ Available: %s VND\n\n", formatVND(available)))
+	sb.WriteString(fmt.Sprintf("Account Value: %s VND\n", formatVND(accountValue)))
+	sb.WriteString(fmt.Sprintf("Total Locked Risk: %s VND\n", formatVND(totalLockedRisk)))
+	sb.WriteString(fmt.Sprintf("Max Allowed (%.0f%%): %s VND\n", threshold*100, formatVND(maxAllowed)))
+	sb.WriteString(fmt.Sprintf("Available: %s VND\n\n", formatVND(available)))
 
 	// Warning if close to threshold
 	if usedPercent > 80 {
@@ -101,7 +101,7 @@ func FormatLockedRiskReport(
 func FormatPositionLiquidNotification(pos *repository.Position) string {
 	var sb strings.Builder
 
-	sb.WriteString("✅ *Position Now Liquid*\n\n")
+	sb.WriteString("*Position Now Liquid*\n\n")
 	sb.WriteString(fmt.Sprintf("Symbol: *%s*\n", pos.Symbol))
 	sb.WriteString(fmt.Sprintf("Quantity: *%d* shares\n", pos.Quantity))
 

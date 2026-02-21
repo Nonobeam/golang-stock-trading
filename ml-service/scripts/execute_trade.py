@@ -45,7 +45,7 @@ def execute_buy(pm: PositionManager, ticker: str, shares: int, price: float, use
         
         # Retrieve updated position
         updated_pos = pm.get_position(ticker, user_id)
-        print(f"✅ Position updated:")
+        print(f"Position updated:")
         print(f"   New quantity: {updated_pos['quantity']} shares")
         print(f"   New avg price: {updated_pos['entry_price']:,.2f} VND")
     else:
@@ -74,15 +74,15 @@ def execute_buy(pm: PositionManager, ticker: str, shares: int, price: float, use
                 notes=notes
             )
             
-            print(f"✅ New position created (ID: {position_id})")
+            print(f"New position created (ID: {position_id})")
             print(f"   Quantity: {shares} shares")
             print(f"   Entry price: {price:,.2f} VND")
             print(f"   Stop loss: {stop_loss:,.2f} VND")
         except KeyboardInterrupt:
-            print("\n❌ Trade cancelled")
+            print("\nTrade cancelled")
             return
         except ValueError as e:
-            print(f"❌ Invalid input: {e}")
+            print(f"Invalid input: {e}")
             return
 
 
@@ -100,14 +100,14 @@ def execute_sell(pm: PositionManager, ticker: str, shares: int, price: float, us
     position = pm.get_position(ticker, user_id)
     
     if not position:
-        print(f"❌ No active position found for {ticker}")
+        print(f"No active position found for {ticker}")
         return
     
     position_id = position['id']
     current_qty = position['quantity']
     
     if shares > current_qty:
-        print(f"❌ Cannot sell {shares} shares, only {current_qty} available")
+        print(f"Cannot sell {shares} shares, only {current_qty} available")
         return
     
     print(f"Selling {shares} shares of {ticker} @ {price:,.2f}...")
@@ -118,7 +118,7 @@ def execute_sell(pm: PositionManager, ticker: str, shares: int, price: float, us
     realized_pnl = shares * (price - avg_price)
     realized_pnl_pct = ((price - avg_price) / avg_price) * 100
     
-    print(f"✅ Partial sell executed")
+    print(f"Partial sell executed")
     print(f"   Sold: {shares} shares @ {price:,.2f}")
     print(f"   Realized P&L: {realized_pnl:+,.0f} VND ({realized_pnl_pct:+.2f}%)")
     print(f"   Remaining: {current_qty - shares} shares @ {avg_price:,.2f} avg")
@@ -138,7 +138,7 @@ def execute_close(pm: PositionManager, ticker: str, price: float, reason: str, u
     position = pm.get_position(ticker, user_id)
     
     if not position:
-        print(f"❌ No active position found for {ticker}")
+        print(f"No active position found for {ticker}")
         return
     
     position_id = position['id']
@@ -157,7 +157,7 @@ def execute_close(pm: PositionManager, ticker: str, price: float, reason: str, u
     pnl = quantity * (price - avg_price)
     pnl_pct = ((price - avg_price) / avg_price) * 100
     
-    print(f"✅ Position closed")
+    print(f"Position closed")
     print(f"   Closed: {quantity} shares @ {price:,.2f}")
     print(f"   Entry avg: {avg_price:,.2f}")
     print(f"   Total P&L: {pnl:+,.0f} VND ({pnl_pct:+.2f}%)")
@@ -195,7 +195,7 @@ Examples:
         
         if args.action == 'buy':
             if not args.arg2:
-                print("❌ Buy requires both shares and price")
+                print("Buy requires both shares and price")
                 print("Usage: execute_trade.py buy TICKER SHARES PRICE")
                 return 1
             shares = int(args.arg1)
@@ -204,7 +204,7 @@ Examples:
             
         elif args.action == 'sell':
             if not args.arg2:
-                print("❌ Sell requires both shares and price")
+                print("Sell requires both shares and price")
                 print("Usage: execute_trade.py sell TICKER SHARES PRICE")
                 return 1
             shares = int(args.arg1)
@@ -213,7 +213,7 @@ Examples:
             
         elif args.action == 'close':
             if not args.arg2:
-                print("❌ Close requires price and reason")
+                print("Close requires price and reason")
                 print("Usage: execute_trade.py close TICKER PRICE REASON")
                 return 1
             price = float(args.arg1)
@@ -224,7 +224,7 @@ Examples:
         return 0
         
     except Exception as e:
-        print(f"❌ Error: {str(e)}")
+        print(f"Error: {str(e)}")
         import traceback
         traceback.print_exc()
         return 1

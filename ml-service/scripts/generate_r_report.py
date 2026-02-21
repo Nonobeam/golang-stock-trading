@@ -41,7 +41,7 @@ def generate_r_report(user_id: int, lookback_days: int = 30, output_path: str = 
     with open(output_path, 'w', encoding='utf-8') as f:
         f.write(report)
     
-    print(f"✅ R-multiple report saved to {output_path}")
+    print(f"R-multiple report saved to {output_path}")
     print("\n" + "="*80)
     print(report)
     print("="*80)

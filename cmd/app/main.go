@@ -237,7 +237,7 @@ func main() {
 				expirationStr := expirationTime.Format("2006-01-02 15:04:05")
 				durationStr := formatDuration(tradingTokenResp.ExpiresIn)
 				
-				telegramBot.Broadcast(fmt.Sprintf("✅ <b>Trading token received successfully!</b>\n\n⏱ <b>Expires in:</b> %s\n📅 <b>Expiration time:</b> %s", durationStr, expirationStr))
+				telegramBot.Broadcast(fmt.Sprintf("<b>Trading token received successfully!</b>\n\n⏱ <b>Expires in:</b> %s\n📅 <b>Expiration time:</b> %s", durationStr, expirationStr))
 
 					// Initialize APIs
 					infoAPI := api.NewInfoAPI(authService.GetClient())

@@ -197,12 +197,18 @@ func (s *BotService) handleCommand(msg *tgbotapi.Message) {
 			"/watch &lt;symbol&gt; - Add to watchlist\n" +
 			"/unwatch &lt;symbol&gt; - Remove from watchlist\n\n" +
 			"<b>Portfolio:</b>\n" +
-			"/scan [date] - Weekly portfolio scan (50 stocks)\n" +
-			"/buy &lt;symbol&gt; &lt;qty&gt; &lt;price&gt; [date] - Record purchase\n" +
-			"/risk - Show current risk status\n" +
-			"/limits - Show all risk limits\n" +
-			"/positions - List active positions\n" +
-			"/position &lt;symbol&gt; - Position details\n\n" +
+			"/scan [date] - Weekly portfolio scan (50 stocks)\n" +
+
+			"/buy &lt;symbol&gt; &lt;qty&gt; &lt;price&gt; [date] - Record purchase\n" +
+
+			"/risk - Show current risk status\n" +
+
+			"/limits - Show all risk limits\n" +
+
+			"/positions - List active positions\n" +
+
+			"/position &lt;symbol&gt; - Position details\n\n" +
+
 			"<b>General:</b>\n" +
 			"/restart - Re-authenticate with new OTP\n" +
 			"/status - Check bot status\n" +
@@ -249,7 +255,7 @@ func (s *BotService) handleCommand(msg *tgbotapi.Message) {
 			return
 		}
 		
-		s.SendMessage(chatID, fmt.Sprintf("✅ Added <code>%s</code> to your watchlist!\n\nUse /status to view all tracked stocks.", symbol))
+		s.SendMessage(chatID, fmt.Sprintf("Added <code>%s</code> to your watchlist!\n\nUse /status to view all tracked stocks.", symbol))
 	case "unwatch":
 		args := strings.Fields(text)
 		if len(args) < 2 {

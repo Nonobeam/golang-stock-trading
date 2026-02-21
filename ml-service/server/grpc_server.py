@@ -18,6 +18,8 @@ from generated import ml_service_pb2
 from generated import ml_service_pb2_grpc
 from utils.logging_config import setup_logging
 from inference.predictor import Predictor
+import portfolio.selector as selector
+from datetime import date
 
 # Configure logging
 logger = setup_logging("grpc_server")
@@ -212,11 +214,49 @@ class MLPredictionServicer(ml_service_pb2_grpc.MLPredictionServiceServicer):
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented yet')
         return ml_service_pb2.TrainModelResponse()
+
     def GetModelInfo(self, request, context):
         """Get model metadata."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented yet')
         return ml_service_pb2.ModelInfoResponse()
+
+    def RunWeeklyPortfolio(self, request, context):
+        """
+        Run the weekly portfolio selection pipeline via gRPC.
+
+        If request.pred_date is empty, the most recent prediction date
+        available in the database is used (same behaviour as the cron script).
+        The portfolio selector sends its own Telegram messages; we just return
+        a count + success flag.
+        """
+        pred_date = request.pred_date or None
+
+        try:
+            if not pred_date:
+                from data.loader import DataLoader
+                latest = DataLoader.get_latest_prediction_date()
+                pred_date = latest if latest else date.today().isoformat()
+                logger.info(f"RunWeeklyPortfolio: no date supplied, using {pred_date}")
+            else:
+                logger.info(f"RunWeeklyPortfolio: ad-hoc run for date {pred_date}")
+
+            messages = selector.run(pred_date=pred_date)
+            logger.info(f"RunWeeklyPortfolio: complete. {len(messages)} message(s) sent.")
+
+            return ml_service_pb2.RunWeeklyPortfolioResponse(
+                success=True,
+                pred_date=pred_date,
+                messages_sent=len(messages),
+            )
+
+        except Exception as e:
+            logger.exception(f"RunWeeklyPortfolio failed: {e}")
+            return ml_service_pb2.RunWeeklyPortfolioResponse(
+                success=False,
+                pred_date=pred_date or "",
+                error_message=str(e),
+            )
 
 def serve(port=None):
     """Start gRPC server."""

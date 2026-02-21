@@ -79,7 +79,7 @@ func TestComprehensiveStatistics_Integration(t *testing.T) {
 		t.Error("No recommendations generated")
 	}
 
-	t.Logf("✅ System Health: %s (%d/100)", report.Health.Rating, report.Health.Score)
-	t.Logf("✅ Should Trade: %v", report.Health.ShouldTrade)
-	t.Logf("✅ Recommendations: %d", len(report.Recommendations))
+	t.Logf("System Health: %s (%d/100)", report.Health.Rating, report.Health.Score)
+	t.Logf("Should Trade: %v", report.Health.ShouldTrade)
+	t.Logf("Recommendations: %d", len(report.Recommendations))
 }

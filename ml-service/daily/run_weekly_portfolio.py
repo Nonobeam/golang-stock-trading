@@ -42,10 +42,10 @@ def main() -> None:
         logger.info(f"Run complete. {len(messages)} Telegram message(s) sent.")
         # Note: selector.run() already sends its own very detailed telegram messages.
         # We will just send a short confirmation/failure status here.
-        alerter.send_alert(f"✅ Weekly Portfolio Strategy generated for {pred_date}.\nSent {len(messages)} detailed notification(s).", level="INFO")
+        alerter.send_alert(f"Weekly Portfolio Strategy generated for {pred_date}.\nSent {len(messages)} detailed notification(s).", level="INFO")
     except Exception as e:
         logger.critical(f"Weekly portfolio selection failed: {e}", exc_info=True)
-        alerter.send_alert(f"❌ Weekly Portfolio Selection failed.\nError: {e}", level="CRITICAL")
+        alerter.send_alert(f"Weekly Portfolio Selection failed.\nError: {e}", level="CRITICAL")
         sys.exit(1)
 
 
