@@ -928,38 +928,69 @@ func (s *BotService) handleRestartOTP(chatID int64, otp string) {
 	s.SendMessage(chatID, "<b>Trading token refreshed successfully!</b>\n\nBot is ready for trading operations.")
 }
 
-// handleTrainCommand handles /train <SYMBOL> command
-// Triggers ML model training (backfill + train) for a symbol
+// handleTrainCommand handles /train <SYMBOL> and /train all commands
 func (s *BotService) handleTrainCommand(msg *tgbotapi.Message) {
 	chatID := msg.Chat.ID
 	args := strings.Fields(msg.Text)
 	if len(args) < 2 {
 		s.SendMessage(chatID,
-			"<b>Usage:</b> /train &lt;SYMBOL&gt;\n\n" +
-			"<b>Example:</b> /train VCB\n\n" +
-			"This will backfill features and train the AI model. " +
-			"Make sure you've imported data first using /import.")
+			"<b>Usage:</b>\n"+
+				"  /train &lt;SYMBOL&gt; — train one stock (e.g. /train VCB)\n"+
+				"  /train all       — retrain all stocks in the universe\n\n"+
+				"Make sure data is imported first with /import.")
 		return
 	}
 
-	symbol := strings.ToUpper(args[1])
-	
-	// Optional: Check if ML client is configured
 	if s.mlClient == nil {
 		s.SendMessage(chatID, "<b>Error:</b> ML service not configured. Please contact administrator.")
 		logger.Error().Msg("ML client not set in BotService")
 		return
 	}
-	
-	// Send "processing" message
+
+	symbol := strings.ToUpper(args[1])
+
+	// ── /train all ───────────────────────────────────────────────────────────
+	if symbol == "ALL" {
+		s.SendMessage(chatID,
+			"<b>Bulk Training Started</b>\n\n"+
+				"Backfill + train + predict for all tickers in the universe.\n"+
+				"<i>You will receive a status message after each stock is done.</i>")
+
+		// Open the gRPC stream in a goroutine — it blocks until all tickers are done
+		go func(cid int64) {
+			// No deadline — training 50 tickers could take 30+ minutes
+			ctx := context.Background()
+			stream, err := s.mlClient.TriggerBulkRetrain(ctx, &ml.TriggerBulkRetrainRequest{Force: true})
+			if err != nil {
+				logger.Error().Err(err).Msg("TriggerBulkRetrain stream open failed")
+				s.SendMessage(cid, "<b>Bulk Train Failed</b>\n\nCould not reach ML service:\n"+err.Error())
+				return
+			}
+
+			// Read updates as they arrive and forward to Telegram
+			for {
+				update, err := stream.Recv()
+				if err != nil {
+					// Stream closed — either done or error
+					if err.Error() != "EOF" {
+						logger.Error().Err(err).Msg("BulkRetrain stream error")
+						s.SendMessage(cid, "<b>Bulk Train stream interrupted:</b>\n"+err.Error())
+					}
+					return
+				}
+				s.SendMessage(cid, update.Message)
+			}
+		}(chatID)
+		return
+	}
+
+	// ── /train <SYMBOL> ──────────────────────────────────────────────────────
 	s.SendMessage(chatID, fmt.Sprintf(
-		"<b>Training AI Model</b>\n\n" +
-		"Symbol: <code>%s</code>\n\n" +
-		"This may take 2-5 minutes...\n\n" +
-		"Status: Backfilling features and training model",
+		"<b>Training AI Model</b>\n\n"+
+			"Symbol: <code>%s</code>\n\n"+
+			"This may take 2–5 minutes...",
 		symbol))
 
-	// Call ML service in background to avoid blocking
 	go func(cid int64) {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		defer cancel()
@@ -971,31 +1002,30 @@ func (s *BotService) handleTrainCommand(msg *tgbotapi.Message) {
 		if err != nil {
 			logger.Error().Err(err).Str("symbol", symbol).Msg("TriggerTraining gRPC failed")
 			s.SendMessage(cid, fmt.Sprintf(
-				"<b>Training Failed</b>\n\n" +
-				"Symbol: <code>%s</code>\n" +
-				"Error: %s\n\n" +
-				"Please check if:\n" +
-				"1. You have imported data for this symbol\n" +
-				"2. The ML service is running",
+				"<b>Training Failed</b>\n\n"+
+					"Symbol: <code>%s</code>\n"+
+					"Error: %s\n\n"+
+					"Please check:\n"+
+					"1. You have imported data for this symbol\n"+
+					"2. The ML service is running",
 				symbol, err.Error()))
 			return
 		}
 
 		if !resp.Success {
 			s.SendMessage(cid, fmt.Sprintf(
-				"<b>Training Failed</b>\n\n" +
-				"Symbol: <code>%s</code>\n" +
-				"Error: %s",
+				"<b>Training Failed</b>\n\n"+
+					"Symbol: <code>%s</code>\n"+
+					"Error: %s",
 				symbol, resp.ErrorMessage))
 			return
 		}
 
-		// Success!
 		s.SendMessage(cid, fmt.Sprintf(
-			"<b>Training Complete!</b>\n\n" +
-			"Symbol: <code>%s</code>\n" +
-			"Model Version: <code>%s</code>\n\n" +
-			"The AI model is now ready for predictions.",
+			"<b>Training Complete!</b>\n\n"+
+				"Symbol: <code>%s</code>\n"+
+				"Model Version: <code>%s</code>\n\n"+
+				"The AI model is now ready for predictions.",
 			symbol, resp.ModelVersion))
 	}(chatID)
 }

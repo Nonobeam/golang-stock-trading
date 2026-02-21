@@ -29,6 +29,11 @@ service MLPredictionService {
     // Run the weekly portfolio selection pipeline
     // If pred_date is empty, uses the most recent date with ML predictions in the DB
     rpc RunWeeklyPortfolio(RunWeeklyPortfolioRequest) returns (RunWeeklyPortfolioResponse);
+
+    // Trigger full bulk retrain — server-side streaming.
+    // Python yields one BulkRetrainUpdate per ticker + a final summary.
+    // Go reads the stream and calls SendMessage() for each update.
+    rpc TriggerBulkRetrain(TriggerBulkRetrainRequest) returns (stream BulkRetrainUpdate);
 }
 
 message PingRequest {
@@ -156,4 +161,19 @@ message RunWeeklyPortfolioResponse {
     int32  messages_sent   = 3;       // Number of report messages generated
     string error_message   = 4;       // Error message if success=false
     repeated string report_messages = 5; // The formatted report strings — Go sends these to Telegram
+}
+
+// Request for bulk retrain of all tickers
+message TriggerBulkRetrainRequest {
+    bool force = 1;   // Force retrain even if models are up to date
+}
+
+// One progress update streamed back to Go for each ticker (and final summary)
+message BulkRetrainUpdate {
+    string ticker    = 1;  // Ticker being processed (empty on final summary)
+    int32  idx       = 2;  // Current ticker index (1-based)
+    int32  total     = 3;  // Total tickers in the job
+    bool   success   = 4;  // Whether this ticker succeeded
+    string message   = 5;  // Human-readable status line for Telegram
+    bool   is_final  = 6;  // True on the last summary update
 }

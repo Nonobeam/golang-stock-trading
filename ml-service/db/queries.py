@@ -30,8 +30,13 @@ class Queries:
         return f"""
             SELECT DISTINCT symbol as ticker
             FROM "{DB_SCHEMA}".daily_bars
-            WHERE date >= COALESCE(%s::date, (SELECT MAX(date) FROM "{DB_SCHEMA}".daily_bars)) - INTERVAL '7 days'
             ORDER BY symbol
+        """
+
+    @classmethod
+    def get_latest_bar_date(cls):
+        return f"""
+            SELECT MAX(date) as max FROM "{DB_SCHEMA}".daily_bars
         """
 
     @classmethod
@@ -224,6 +229,7 @@ class Queries:
 LOAD_DAILY_BARS = Queries.load_daily_bars()
 LOAD_DAILY_BARS_RECENT = Queries.load_daily_bars_recent()
 GET_ALL_ACTIVE_TICKERS = Queries.get_all_active_tickers()
+GET_LATEST_BAR_DATE = Queries.get_latest_bar_date()
 LOAD_FEATURES = Queries.load_features()
 SAVE_FEATURES = Queries.save_features()
 SAVE_PREDICTION = Queries.save_prediction()

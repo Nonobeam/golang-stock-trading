@@ -1125,6 +1125,136 @@ func (x *RunWeeklyPortfolioResponse) GetReportMessages() []string {
 	return nil
 }
 
+// Request for bulk retrain of all tickers
+type TriggerBulkRetrainRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Force         bool                   `protobuf:"varint,1,opt,name=force,proto3" json:"force,omitempty"` // Force retrain even if models are up to date
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TriggerBulkRetrainRequest) Reset() {
+	*x = TriggerBulkRetrainRequest{}
+	mi := &file_proto_ml_ml_service_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TriggerBulkRetrainRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TriggerBulkRetrainRequest) ProtoMessage() {}
+
+func (x *TriggerBulkRetrainRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_ml_ml_service_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TriggerBulkRetrainRequest.ProtoReflect.Descriptor instead.
+func (*TriggerBulkRetrainRequest) Descriptor() ([]byte, []int) {
+	return file_proto_ml_ml_service_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *TriggerBulkRetrainRequest) GetForce() bool {
+	if x != nil {
+		return x.Force
+	}
+	return false
+}
+
+// One progress update streamed back to Go for each ticker (and final summary)
+type BulkRetrainUpdate struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Ticker        string                 `protobuf:"bytes,1,opt,name=ticker,proto3" json:"ticker,omitempty"`                   // Ticker being processed (empty on final summary)
+	Idx           int32                  `protobuf:"varint,2,opt,name=idx,proto3" json:"idx,omitempty"`                        // Current ticker index (1-based)
+	Total         int32                  `protobuf:"varint,3,opt,name=total,proto3" json:"total,omitempty"`                    // Total tickers in the job
+	Success       bool                   `protobuf:"varint,4,opt,name=success,proto3" json:"success,omitempty"`                // Whether this ticker succeeded
+	Message       string                 `protobuf:"bytes,5,opt,name=message,proto3" json:"message,omitempty"`                 // Human-readable status line for Telegram
+	IsFinal       bool                   `protobuf:"varint,6,opt,name=is_final,json=isFinal,proto3" json:"is_final,omitempty"` // True on the last summary update
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BulkRetrainUpdate) Reset() {
+	*x = BulkRetrainUpdate{}
+	mi := &file_proto_ml_ml_service_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BulkRetrainUpdate) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BulkRetrainUpdate) ProtoMessage() {}
+
+func (x *BulkRetrainUpdate) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_ml_ml_service_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BulkRetrainUpdate.ProtoReflect.Descriptor instead.
+func (*BulkRetrainUpdate) Descriptor() ([]byte, []int) {
+	return file_proto_ml_ml_service_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *BulkRetrainUpdate) GetTicker() string {
+	if x != nil {
+		return x.Ticker
+	}
+	return ""
+}
+
+func (x *BulkRetrainUpdate) GetIdx() int32 {
+	if x != nil {
+		return x.Idx
+	}
+	return 0
+}
+
+func (x *BulkRetrainUpdate) GetTotal() int32 {
+	if x != nil {
+		return x.Total
+	}
+	return 0
+}
+
+func (x *BulkRetrainUpdate) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
+func (x *BulkRetrainUpdate) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
+func (x *BulkRetrainUpdate) GetIsFinal() bool {
+	if x != nil {
+		return x.IsFinal
+	}
+	return false
+}
+
 var File_proto_ml_ml_service_proto protoreflect.FileDescriptor
 
 const file_proto_ml_ml_service_proto_rawDesc = "" +
@@ -1228,7 +1358,16 @@ const file_proto_ml_ml_service_proto_rawDesc = "" +
 	"\tpred_date\x18\x02 \x01(\tR\bpredDate\x12#\n" +
 	"\rmessages_sent\x18\x03 \x01(\x05R\fmessagesSent\x12#\n" +
 	"\rerror_message\x18\x04 \x01(\tR\ferrorMessage\x12'\n" +
-	"\x0freport_messages\x18\x05 \x03(\tR\x0ereportMessages2\x8f\x03\n" +
+	"\x0freport_messages\x18\x05 \x03(\tR\x0ereportMessages\"1\n" +
+	"\x19TriggerBulkRetrainRequest\x12\x14\n" +
+	"\x05force\x18\x01 \x01(\bR\x05force\"\xa2\x01\n" +
+	"\x11BulkRetrainUpdate\x12\x16\n" +
+	"\x06ticker\x18\x01 \x01(\tR\x06ticker\x12\x10\n" +
+	"\x03idx\x18\x02 \x01(\x05R\x03idx\x12\x14\n" +
+	"\x05total\x18\x03 \x01(\x05R\x05total\x12\x18\n" +
+	"\asuccess\x18\x04 \x01(\bR\asuccess\x12\x18\n" +
+	"\amessage\x18\x05 \x01(\tR\amessage\x12\x19\n" +
+	"\bis_final\x18\x06 \x01(\bR\aisFinal2\xdd\x03\n" +
 	"\x13MLPredictionService\x122\n" +
 	"\aPredict\x12\x12.ml.PredictRequest\x1a\x13.ml.PredictResponse\x12;\n" +
 	"\n" +
@@ -1236,7 +1375,8 @@ const file_proto_ml_ml_service_proto_rawDesc = "" +
 	"\fGetModelInfo\x12\x14.ml.ModelInfoRequest\x1a\x15.ml.ModelInfoResponse\x12)\n" +
 	"\x04Ping\x12\x0f.ml.PingRequest\x1a\x10.ml.PingResponse\x12J\n" +
 	"\x0fTriggerTraining\x12\x1a.ml.TriggerTrainingRequest\x1a\x1b.ml.TriggerTrainingResponse\x12S\n" +
-	"\x12RunWeeklyPortfolio\x12\x1d.ml.RunWeeklyPortfolioRequest\x1a\x1e.ml.RunWeeklyPortfolioResponseB3Z1github.com/nonobeam/golang-stock-trading/proto/mlb\x06proto3"
+	"\x12RunWeeklyPortfolio\x12\x1d.ml.RunWeeklyPortfolioRequest\x1a\x1e.ml.RunWeeklyPortfolioResponse\x12L\n" +
+	"\x12TriggerBulkRetrain\x12\x1d.ml.TriggerBulkRetrainRequest\x1a\x15.ml.BulkRetrainUpdate0\x01B3Z1github.com/nonobeam/golang-stock-trading/proto/mlb\x06proto3"
 
 var (
 	file_proto_ml_ml_service_proto_rawDescOnce sync.Once
@@ -1250,7 +1390,7 @@ func file_proto_ml_ml_service_proto_rawDescGZIP() []byte {
 	return file_proto_ml_ml_service_proto_rawDescData
 }
 
-var file_proto_ml_ml_service_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
+var file_proto_ml_ml_service_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
 var file_proto_ml_ml_service_proto_goTypes = []any{
 	(*PingRequest)(nil),                // 0: ml.PingRequest
 	(*PingResponse)(nil),               // 1: ml.PingResponse
@@ -1267,15 +1407,17 @@ var file_proto_ml_ml_service_proto_goTypes = []any{
 	(*TriggerTrainingResponse)(nil),    // 12: ml.TriggerTrainingResponse
 	(*RunWeeklyPortfolioRequest)(nil),  // 13: ml.RunWeeklyPortfolioRequest
 	(*RunWeeklyPortfolioResponse)(nil), // 14: ml.RunWeeklyPortfolioResponse
-	nil,                                // 15: ml.PredictRequest.FeaturesEntry
-	nil,                                // 16: ml.ModelInfo.HyperparametersEntry
+	(*TriggerBulkRetrainRequest)(nil),  // 15: ml.TriggerBulkRetrainRequest
+	(*BulkRetrainUpdate)(nil),          // 16: ml.BulkRetrainUpdate
+	nil,                                // 17: ml.PredictRequest.FeaturesEntry
+	nil,                                // 18: ml.ModelInfo.HyperparametersEntry
 }
 var file_proto_ml_ml_service_proto_depIdxs = []int32{
-	15, // 0: ml.PredictRequest.features:type_name -> ml.PredictRequest.FeaturesEntry
+	17, // 0: ml.PredictRequest.features:type_name -> ml.PredictRequest.FeaturesEntry
 	4,  // 1: ml.PredictResponse.predictions:type_name -> ml.HorizonPrediction
 	10, // 2: ml.TrainModelResponse.metrics:type_name -> ml.ModelMetrics
 	9,  // 3: ml.ModelInfoResponse.models:type_name -> ml.ModelInfo
-	16, // 4: ml.ModelInfo.hyperparameters:type_name -> ml.ModelInfo.HyperparametersEntry
+	18, // 4: ml.ModelInfo.hyperparameters:type_name -> ml.ModelInfo.HyperparametersEntry
 	10, // 5: ml.ModelInfo.metrics:type_name -> ml.ModelMetrics
 	2,  // 6: ml.MLPredictionService.Predict:input_type -> ml.PredictRequest
 	5,  // 7: ml.MLPredictionService.TrainModel:input_type -> ml.TrainModelRequest
@@ -1283,14 +1425,16 @@ var file_proto_ml_ml_service_proto_depIdxs = []int32{
 	0,  // 9: ml.MLPredictionService.Ping:input_type -> ml.PingRequest
 	11, // 10: ml.MLPredictionService.TriggerTraining:input_type -> ml.TriggerTrainingRequest
 	13, // 11: ml.MLPredictionService.RunWeeklyPortfolio:input_type -> ml.RunWeeklyPortfolioRequest
-	3,  // 12: ml.MLPredictionService.Predict:output_type -> ml.PredictResponse
-	6,  // 13: ml.MLPredictionService.TrainModel:output_type -> ml.TrainModelResponse
-	8,  // 14: ml.MLPredictionService.GetModelInfo:output_type -> ml.ModelInfoResponse
-	1,  // 15: ml.MLPredictionService.Ping:output_type -> ml.PingResponse
-	12, // 16: ml.MLPredictionService.TriggerTraining:output_type -> ml.TriggerTrainingResponse
-	14, // 17: ml.MLPredictionService.RunWeeklyPortfolio:output_type -> ml.RunWeeklyPortfolioResponse
-	12, // [12:18] is the sub-list for method output_type
-	6,  // [6:12] is the sub-list for method input_type
+	15, // 12: ml.MLPredictionService.TriggerBulkRetrain:input_type -> ml.TriggerBulkRetrainRequest
+	3,  // 13: ml.MLPredictionService.Predict:output_type -> ml.PredictResponse
+	6,  // 14: ml.MLPredictionService.TrainModel:output_type -> ml.TrainModelResponse
+	8,  // 15: ml.MLPredictionService.GetModelInfo:output_type -> ml.ModelInfoResponse
+	1,  // 16: ml.MLPredictionService.Ping:output_type -> ml.PingResponse
+	12, // 17: ml.MLPredictionService.TriggerTraining:output_type -> ml.TriggerTrainingResponse
+	14, // 18: ml.MLPredictionService.RunWeeklyPortfolio:output_type -> ml.RunWeeklyPortfolioResponse
+	16, // 19: ml.MLPredictionService.TriggerBulkRetrain:output_type -> ml.BulkRetrainUpdate
+	13, // [13:20] is the sub-list for method output_type
+	6,  // [6:13] is the sub-list for method input_type
 	6,  // [6:6] is the sub-list for extension type_name
 	6,  // [6:6] is the sub-list for extension extendee
 	0,  // [0:6] is the sub-list for field type_name
@@ -1307,7 +1451,7 @@ func file_proto_ml_ml_service_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_ml_ml_service_proto_rawDesc), len(file_proto_ml_ml_service_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   17,
+			NumMessages:   19,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

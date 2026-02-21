@@ -262,6 +262,97 @@ class MLPredictionServicer(ml_service_pb2_grpc.MLPredictionServiceServicer):
                 error_message=str(e),
             )
 
+    def TriggerBulkRetrain(self, request, context):
+        """
+        Streaming bulk retrain — yields one BulkRetrainUpdate per ticker.
+
+        Pipeline per ticker:
+          1. Backfill features from daily_bars
+          2. Train XGBoost model
+          3. Run inference → write predictions to DB
+
+        Go reads the stream and calls SendMessage() for each yielded update.
+        No Telegram credentials needed here.
+        """
+        from data.loader import DataLoader
+        from backfill_features import backfill_features
+        from daily.retrainer import Retrainer
+        from daily.prediction_generator import PredictionGenerator
+
+        tickers = DataLoader.get_active_tickers()
+        total = len(tickers)
+        force = request.force
+
+        pred_date = DataLoader.get_latest_bar_date()
+        if not pred_date:
+            from datetime import date as _date
+            pred_date = _date.today().isoformat()
+
+        logger.info(f"TriggerBulkRetrain: {total} tickers, pred_date={pred_date}, force={force}")
+
+        retrainer = Retrainer()
+        gen = PredictionGenerator()
+        retrained = 0
+        failed = 0
+
+        for idx, ticker in enumerate(tickers, start=1):
+            pct = idx / total * 100
+            try:
+                # 1. Backfill
+                logger.info(f"[{idx}/{total}] Backfilling {ticker}...")
+                backfill_features(ticker)
+
+                # 2. Train
+                should = force or retrainer.should_retrain(ticker)
+                if not should:
+                    logger.info(f"[{idx}/{total}] {ticker} skipped (up to date)")
+                    yield ml_service_pb2.BulkRetrainUpdate(
+                        ticker=ticker, idx=idx, total=total,
+                        success=True,
+                        message=f"[{idx}/{total}] ({pct:.0f}%) {ticker}: skipped (model up to date)",
+                    )
+                    continue
+
+                logger.info(f"[{idx}/{total}] Training {ticker}...")
+                if not retrainer.retrain_models(ticker):
+                    raise RuntimeError("retrain_models returned False")
+                retrained += 1
+
+                # 3. Inference → predictions table
+                logger.info(f"[{idx}/{total}] Generating predictions for {ticker} on {pred_date}...")
+                gen.generate_daily_predictions([ticker], pred_date)
+
+                yield ml_service_pb2.BulkRetrainUpdate(
+                    ticker=ticker, idx=idx, total=total,
+                    success=True,
+                    message=(
+                        f"[{idx}/{total}] ({pct:.0f}%) {ticker} done\n"
+                        f"Trained + predictions written for {pred_date}"
+                    ),
+                )
+
+            except Exception as e:
+                failed += 1
+                logger.error(f"[{idx}/{total}] {ticker} failed: {e}")
+                yield ml_service_pb2.BulkRetrainUpdate(
+                    ticker=ticker, idx=idx, total=total,
+                    success=False,
+                    message=f"[{idx}/{total}] ({pct:.0f}%) {ticker} FAILED: {e}",
+                )
+
+        # Final summary
+        yield ml_service_pb2.BulkRetrainUpdate(
+            idx=total, total=total,
+            success=(failed == 0),
+            is_final=True,
+            message=(
+                f"Bulk retrain complete.\n"
+                f"Checked: {total}  Retrained: {retrained}  Failed: {failed}\n\n"
+                f"Predictions written for: {pred_date}\n"
+                f"You can now run /scan!"
+            ),
+        )
+
 def serve(port=None):
     """Start gRPC server."""
     if port is None:

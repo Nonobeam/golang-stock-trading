@@ -42,6 +42,21 @@ func (c *MLClient) Close() {
 func (c *MLClient) Ping(ctx context.Context) (*pb.PingResponse, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	
+
 	return c.client.Ping(ctx, &pb.PingRequest{Message: "ping"})
+}
+
+// TriggerTraining triggers model training for a single ticker
+func (c *MLClient) TriggerTraining(ctx context.Context, req *pb.TriggerTrainingRequest) (*pb.TriggerTrainingResponse, error) {
+	return c.client.TriggerTraining(ctx, req)
+}
+
+// RunWeeklyPortfolio runs the weekly portfolio selection pipeline
+func (c *MLClient) RunWeeklyPortfolio(ctx context.Context, req *pb.RunWeeklyPortfolioRequest) (*pb.RunWeeklyPortfolioResponse, error) {
+	return c.client.RunWeeklyPortfolio(ctx, req)
+}
+
+// TriggerBulkRetrain returns the server-side stream for a bulk retrain job
+func (c *MLClient) TriggerBulkRetrain(ctx context.Context, req *pb.TriggerBulkRetrainRequest) (pb.MLPredictionService_TriggerBulkRetrainClient, error) {
+	return c.client.TriggerBulkRetrain(ctx, req)
 }

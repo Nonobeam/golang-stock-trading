@@ -259,16 +259,33 @@ class DataLoader:
 
     @staticmethod
     def get_active_tickers(target_date=None):
-        """Get all active tickers from the last 7 days (relative to target_date)"""
+        """Get all tickers that have any data in daily_bars."""
         from db.connection import get_connection
         from db.queries import GET_ALL_ACTIVE_TICKERS
         
         conn = get_connection()
         try:
             with conn.cursor() as cursor:
-                cursor.execute(GET_ALL_ACTIVE_TICKERS, (target_date,))
+                cursor.execute(GET_ALL_ACTIVE_TICKERS)
                 data = cursor.fetchall()
             return [row['ticker'] for row in data]
+        finally:
+            conn.close()
+
+    @staticmethod
+    def get_latest_bar_date():
+        """Get the most recent date from the daily_bars table."""
+        from db.connection import get_connection
+        from db.queries import GET_LATEST_BAR_DATE
+        
+        conn = get_connection()
+        try:
+            with conn.cursor() as cursor:
+                cursor.execute(GET_LATEST_BAR_DATE)
+                row = cursor.fetchone()
+                if row and row['max']:
+                    return row['max'].strftime('%Y-%m-%d')
+                return None
         finally:
             conn.close()
 

@@ -25,6 +25,7 @@ const (
 	MLPredictionService_Ping_FullMethodName               = "/ml.MLPredictionService/Ping"
 	MLPredictionService_TriggerTraining_FullMethodName    = "/ml.MLPredictionService/TriggerTraining"
 	MLPredictionService_RunWeeklyPortfolio_FullMethodName = "/ml.MLPredictionService/RunWeeklyPortfolio"
+	MLPredictionService_TriggerBulkRetrain_FullMethodName = "/ml.MLPredictionService/TriggerBulkRetrain"
 )
 
 // MLPredictionServiceClient is the client API for MLPredictionService service.
@@ -51,6 +52,10 @@ type MLPredictionServiceClient interface {
 	// Run the weekly portfolio selection pipeline
 	// If pred_date is empty, uses the most recent date with ML predictions in the DB
 	RunWeeklyPortfolio(ctx context.Context, in *RunWeeklyPortfolioRequest, opts ...grpc.CallOption) (*RunWeeklyPortfolioResponse, error)
+	// Trigger full bulk retrain — server-side streaming.
+	// Python yields one BulkRetrainUpdate per ticker + a final summary.
+	// Go reads the stream and calls SendMessage() for each update.
+	TriggerBulkRetrain(ctx context.Context, in *TriggerBulkRetrainRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[BulkRetrainUpdate], error)
 }
 
 type mLPredictionServiceClient struct {
@@ -121,6 +126,25 @@ func (c *mLPredictionServiceClient) RunWeeklyPortfolio(ctx context.Context, in *
 	return out, nil
 }
 
+func (c *mLPredictionServiceClient) TriggerBulkRetrain(ctx context.Context, in *TriggerBulkRetrainRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[BulkRetrainUpdate], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &MLPredictionService_ServiceDesc.Streams[0], MLPredictionService_TriggerBulkRetrain_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[TriggerBulkRetrainRequest, BulkRetrainUpdate]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type MLPredictionService_TriggerBulkRetrainClient = grpc.ServerStreamingClient[BulkRetrainUpdate]
+
 // MLPredictionServiceServer is the server API for MLPredictionService service.
 // All implementations must embed UnimplementedMLPredictionServiceServer
 // for forward compatibility.
@@ -145,6 +169,10 @@ type MLPredictionServiceServer interface {
 	// Run the weekly portfolio selection pipeline
 	// If pred_date is empty, uses the most recent date with ML predictions in the DB
 	RunWeeklyPortfolio(context.Context, *RunWeeklyPortfolioRequest) (*RunWeeklyPortfolioResponse, error)
+	// Trigger full bulk retrain — server-side streaming.
+	// Python yields one BulkRetrainUpdate per ticker + a final summary.
+	// Go reads the stream and calls SendMessage() for each update.
+	TriggerBulkRetrain(*TriggerBulkRetrainRequest, grpc.ServerStreamingServer[BulkRetrainUpdate]) error
 	mustEmbedUnimplementedMLPredictionServiceServer()
 }
 
@@ -172,6 +200,9 @@ func (UnimplementedMLPredictionServiceServer) TriggerTraining(context.Context, *
 }
 func (UnimplementedMLPredictionServiceServer) RunWeeklyPortfolio(context.Context, *RunWeeklyPortfolioRequest) (*RunWeeklyPortfolioResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method RunWeeklyPortfolio not implemented")
+}
+func (UnimplementedMLPredictionServiceServer) TriggerBulkRetrain(*TriggerBulkRetrainRequest, grpc.ServerStreamingServer[BulkRetrainUpdate]) error {
+	return status.Error(codes.Unimplemented, "method TriggerBulkRetrain not implemented")
 }
 func (UnimplementedMLPredictionServiceServer) mustEmbedUnimplementedMLPredictionServiceServer() {}
 func (UnimplementedMLPredictionServiceServer) testEmbeddedByValue()                             {}
@@ -302,6 +333,17 @@ func _MLPredictionService_RunWeeklyPortfolio_Handler(srv interface{}, ctx contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _MLPredictionService_TriggerBulkRetrain_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(TriggerBulkRetrainRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(MLPredictionServiceServer).TriggerBulkRetrain(m, &grpc.GenericServerStream[TriggerBulkRetrainRequest, BulkRetrainUpdate]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type MLPredictionService_TriggerBulkRetrainServer = grpc.ServerStreamingServer[BulkRetrainUpdate]
+
 // MLPredictionService_ServiceDesc is the grpc.ServiceDesc for MLPredictionService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -334,6 +376,12 @@ var MLPredictionService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _MLPredictionService_RunWeeklyPortfolio_Handler,
 		},
 	},
-	Streams:  []grpc.StreamDesc{},
+	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "TriggerBulkRetrain",
+			Handler:       _MLPredictionService_TriggerBulkRetrain_Handler,
+			ServerStreams: true,
+		},
+	},
 	Metadata: "proto/ml/ml_service.proto",
 }
