@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"flag"
 	"fmt"
 	"log"
 	"os"
@@ -17,17 +18,18 @@ import (
 	"github.com/nonobeam/golang-stock-trading/internal/db/repository"
 )
 
-const (
-	xlsxFilePath = "Simplize_HPG_PriceHistory_20260123.xlsx"
-	symbol       = "HPG"
-	startRow     = 7
-	endRow       = 1006
+var (
+	xlsxFilePath string
+	symbol       string
+	startRow     int
+	endRow       int
 	dateCol      = "A"
 	openCol      = "B"
 	highCol      = "C"
 	lowCol       = "D"
 	closeCol     = "E"
 	volumeCol    = "H"
+	autoConfirm  bool
 )
 
 type DailyBarData struct {
@@ -39,7 +41,21 @@ type DailyBarData struct {
 	Volume int64
 }
 
+func init() {
+	flag.StringVar(&xlsxFilePath, "file", "", "Path to the XLSX file")
+	flag.StringVar(&symbol, "symbol", "", "Stock symbol")
+	flag.IntVar(&startRow, "start", 7, "Starting row (default: 7)")
+	flag.IntVar(&endRow, "end", 1006, "Ending row (default: 1006)")
+	flag.BoolVar(&autoConfirm, "y", false, "Auto-confirm without prompt")
+}
+
 func main() {
+	flag.Parse()
+
+	if xlsxFilePath == "" || symbol == "" {
+		log.Fatal("Usage: go run main.go -file <path> -symbol <ticker> [-y]")
+	}
+
 	if err := godotenv.Load(); err != nil {
 		log.Println("No .env file found, using environment variables")
 	}
@@ -83,35 +99,37 @@ func main() {
 	log.Printf("Using sheet: %s\n", sheetName)
 
 	fmt.Println("===========================================")
-	fmt.Println("XLSX Historical Data Import Tool - HPG")
+	fmt.Println("XLSX Historical Data Import Tool")
 	fmt.Println("===========================================")
 	fmt.Printf("File: %s\n", xlsxFilePath)
 	fmt.Printf("Symbol: %s\n", symbol)
 	fmt.Printf("Rows: %d to %d (%d total rows)\n\n", startRow, endRow, endRow-startRow+1)
 
-	fmt.Println("TEST MODE: Validating row 7 and row 1006")
-	fmt.Println("-------------------------------------------")
+	if !autoConfirm {
+		fmt.Println("TEST MODE: Validating start row and end row")
+		fmt.Println("-------------------------------------------")
 
-	testRow7, err := parseRow(f, sheetName, startRow)
-	if err != nil {
-		log.Fatalf("Failed to parse row 7: %v", err)
-	}
-	displayRow("Row 7 (Most Recent)", testRow7)
+		testStartRow, err := parseRow(f, sheetName, startRow)
+		if err != nil {
+			log.Fatalf("Failed to parse start row %d: %v", startRow, err)
+		}
+		displayRow(fmt.Sprintf("Row %d", startRow), testStartRow)
 
-	testRow1006, err := parseRow(f, sheetName, endRow)
-	if err != nil {
-		log.Fatalf("Failed to parse row 1006: %v", err)
-	}
-	displayRow("Row 1006 (Oldest)", testRow1006)
+		testEndRow, err := parseRow(f, sheetName, endRow)
+		if err != nil {
+			log.Fatalf("Failed to parse end row %d: %v", endRow, err)
+		}
+		displayRow(fmt.Sprintf("Row %d", endRow), testEndRow)
 
-	fmt.Println("\n===========================================")
-	fmt.Print("Data looks correct? Proceed with full import? (y/n): ")
-	var confirm string
-	fmt.Scanln(&confirm)
+		fmt.Println("\n===========================================")
+		fmt.Print("Data looks correct? Proceed with full import? (y/n): ")
+		var confirm string
+		fmt.Scanln(&confirm)
 
-	if confirm != "y" && confirm != "Y" {
-		fmt.Println("Import cancelled by user")
-		return
+		if confirm != "y" && confirm != "Y" {
+			fmt.Println("Import cancelled by user")
+			return
+		}
 	}
 
 	fmt.Println("\nStarting full import...")
@@ -123,6 +141,7 @@ func main() {
 	inserted := 0
 	errors := 0
 
+	totalToProcess := endRow - startRow + 1
 	for row := startRow; row <= endRow; row++ {
 		data, err := parseRow(f, sheetName, row)
 		if err != nil {
@@ -150,8 +169,8 @@ func main() {
 
 		inserted++
 
-		if inserted%100 == 0 {
-			fmt.Printf("Progress: %d/%d rows processed\n", inserted, endRow-startRow+1)
+		if inserted%100 == 0 || inserted == totalToProcess {
+			fmt.Printf("Progress: %d/%d rows processed\n", inserted, totalToProcess)
 		}
 	}
 
@@ -161,12 +180,6 @@ func main() {
 	fmt.Printf("Total rows processed: %d\n", inserted+errors)
 	fmt.Printf("Successfully imported: %d\n", inserted)
 	fmt.Printf("Errors: %d\n", errors)
-	fmt.Println("\nNext steps:")
-	fmt.Println("1. Verify data in database:")
-	fmt.Printf("   SELECT COUNT(*) FROM daily_bars WHERE symbol = '%s';\n", symbol)
-	fmt.Println("2. Delete this tool:")
-	fmt.Println("   rm -rf cmd/xlsx_importer")
-	fmt.Println("3. Remove XLSX file from repository")
 }
 
 func parseRow(f *excelize.File, sheetName string, row int) (*DailyBarData, error) {

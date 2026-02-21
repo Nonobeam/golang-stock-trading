@@ -162,7 +162,98 @@ class DataLoader:
         
         return df
         
-    def get_feature_columns(self):
+    @staticmethod
+    def load_daily_bars(ticker, start_date, end_date):
+        """
+        Load daily bars for a date range.
+        
+        Args:
+            ticker: Stock symbol
+            start_date: Start date string
+            end_date: End date string
+            
+        Returns:
+            DataFrame with OHLCV data
+        """
+        from db.connection import get_connection
+        from db.queries import LOAD_DAILY_BARS
+        
+        conn = get_connection()
+        try:
+            with conn.cursor() as cursor:
+                cursor.execute(LOAD_DAILY_BARS, (ticker, start_date, end_date))
+                columns = [desc[0] for desc in cursor.description]
+                data = cursor.fetchall()
+                
+            if not data:
+                return pd.DataFrame()
+                
+            df = pd.DataFrame(data, columns=columns)
+            
+            # Convert types
+            for col in ['open', 'high', 'low', 'close', 'volume']:
+                df[col] = pd.to_numeric(df[col])
+                
+            df['date'] = pd.to_datetime(df['date'])
+            
+            return df
+        finally:
+            conn.close()
+
+    @staticmethod
+    def save_features(ticker, date, feature_dict, feature_version='v1.0'):
+        """
+        Save calculated features to database.
+        
+        Args:
+            ticker: Stock symbol
+            date: Target date string
+            feature_dict: Dictionary of calculated features
+            feature_version: Version string for the feature set
+        """
+        from db.connection import get_connection
+        from db.queries import SAVE_FEATURES
+        
+        # Define the exact order of columns matching the SQL query
+        columns = [
+            'return_1d', 'return_5d', 'return_20d', 'return_60d',
+            'sma_5', 'sma_10', 'sma_20', 'sma_50', 'sma_200',
+            'ema_12', 'ema_26',
+            'rsi_14', 'rsi_28', 'macd', 'macd_signal', 'macd_hist',
+            'bb_upper', 'bb_middle', 'bb_lower', 'bb_width',
+            'volume_ratio_5d', 'volume_ratio_20d', 'volume_trend', 'obv',
+            'turnover_ratio_5d', 'turnover_ratio_20d',
+            'volatility_5d', 'volatility_20d', 'atr_14', 'coefficient_variation',
+            'price_to_sma20', 'price_to_sma50', 'price_to_sma200', 'range_to_close',
+            'target_return_5d', 'target_return_10d'
+        ]
+        
+        # Build params tuple in correct order, using None for missing keys
+        params = [ticker, date]
+        for col in columns:
+            val = feature_dict.get(col)
+            # Convert numpy NaN/Inf to None for psycopg
+            if pd.isna(val) or val == float('inf') or val == float('-inf'):
+                params.append(None)
+            else:
+                params.append(val)
+                
+        # Append features_complete flag and version
+        params.extend([True, feature_version])
+        
+        conn = get_connection()
+        try:
+            with conn.cursor() as cursor:
+                cursor.execute(SAVE_FEATURES, tuple(params))
+            conn.commit()
+        except Exception as e:
+            conn.rollback()
+            raise Exception(f"Failed to save features: {e}")
+        finally:
+            conn.close()
+
+    @staticmethod
+    def get_feature_columns():
         """Wrapper for get_feature_columns function"""
         return get_feature_columns()
 
@@ -178,5 +269,37 @@ class DataLoader:
                 cursor.execute(GET_ALL_ACTIVE_TICKERS, (target_date,))
                 data = cursor.fetchall()
             return [row['ticker'] for row in data]
+        finally:
+            conn.close()
+
+    @staticmethod
+    def get_all_distinct_dates():
+        """Get all distinct dates from the daily_bars table"""
+        from db.connection import get_connection
+        from db.queries import GET_ALL_DISTINCT_DATES
+        
+        conn = get_connection()
+        try:
+            with conn.cursor() as cursor:
+                cursor.execute(GET_ALL_DISTINCT_DATES)
+                data = cursor.fetchall()
+            return [row['date'].strftime('%Y-%m-%d') for row in data]
+        finally:
+            conn.close()
+
+    @staticmethod
+    def get_latest_prediction_date():
+        """Get the latest prediction_date available in predictions table"""
+        from db.connection import get_connection
+        from db.queries import GET_LATEST_PREDICTION_DATE
+        
+        conn = get_connection()
+        try:
+            with conn.cursor() as cursor:
+                cursor.execute(GET_LATEST_PREDICTION_DATE)
+                row = cursor.fetchone()
+                if row and row['max']:
+                    return row['max'].strftime('%Y-%m-%d')
+                return None
         finally:
             conn.close()

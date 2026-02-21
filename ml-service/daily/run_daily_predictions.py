@@ -23,27 +23,37 @@ def main():
     parser.add_argument('--date', type=str, help='Target date (YYYY-MM-DD)', default=None)
     args = parser.parse_args()
     
-    # Default to today
+    # Default to all dates if none provided
+    dates_to_process = []
     if args.date:
-        target_date = args.date
+        dates_to_process = [args.date]
+        logger.info(f"Starting prediction generation for specific date: {args.date}")
     else:
-        target_date = datetime.now().strftime('%Y-%m-%d')
+        dates_to_process = DataLoader.get_all_distinct_dates()
+        logger.info(f"No date provided. Starting prediction generation for all {len(dates_to_process)} distinct dates in database.")
         
-    logger.info(f"Starting prediction generation for {target_date}")
-    
     try:
-        tickers = DataLoader.get_active_tickers(target_date)
-        logger.info(f"Found {len(tickers)} active tickers for date {target_date}")
-        
         generator = PredictionGenerator()
-        generator.generate_daily_predictions(tickers, target_date)
+        total_processed_dates = 0
         
-        logger.info("Daily predictions completed")
-        alerter.send_alert(f"✅ Daily Predictions generation completed.\nProcessed {len(tickers)} active tickers for {target_date}.", level="INFO")
+        for target_date in dates_to_process:
+            logger.info(f"Processing predictions for {target_date}...")
+            tickers = DataLoader.get_active_tickers(target_date)
+            
+            if not tickers:
+                logger.warning(f"No active tickers found for {target_date}, skipping.")
+                continue
+                
+            generator.generate_daily_predictions(tickers, target_date)
+            total_processed_dates += 1
+            
+        logger.info(f"Daily predictions completed for {total_processed_dates} dates")
+        if total_processed_dates > 0:
+            alerter.send_alert(f"✅ Daily Predictions generation completed for {total_processed_dates} dates.", level="INFO")
         
     except Exception as e:
         logger.error(f"Daily predictions failed: {e}")
-        alerter.send_alert(f"❌ Daily Predictions failed for {target_date}.\nError: {e}", level="CRITICAL")
+        alerter.send_alert(f"❌ Daily Predictions failed.\nError: {e}", level="CRITICAL")
         sys.exit(1)
 
 if __name__ == "__main__":

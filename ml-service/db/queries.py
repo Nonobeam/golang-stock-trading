@@ -30,8 +30,16 @@ class Queries:
         return f"""
             SELECT DISTINCT symbol as ticker
             FROM "{DB_SCHEMA}".daily_bars
-            WHERE date >= COALESCE(%s::date, CURRENT_DATE) - INTERVAL '7 days'
+            WHERE date >= COALESCE(%s::date, (SELECT MAX(date) FROM "{DB_SCHEMA}".daily_bars)) - INTERVAL '7 days'
             ORDER BY symbol
+        """
+
+    @classmethod
+    def get_all_distinct_dates(cls):
+        return f"""
+            SELECT DISTINCT date
+            FROM "{DB_SCHEMA}".daily_bars
+            ORDER BY date ASC
         """
 
     @classmethod
@@ -205,6 +213,13 @@ class Queries:
             LIMIT 1
         """
 
+    @classmethod
+    def get_latest_prediction_date(cls):
+        return f"""
+            SELECT MAX(prediction_date)
+            FROM "{DB_SCHEMA}".predictions
+        """
+
 # Backward compatibility aliases, resolving strings at import time.
 LOAD_DAILY_BARS = Queries.load_daily_bars()
 LOAD_DAILY_BARS_RECENT = Queries.load_daily_bars_recent()
@@ -218,3 +233,5 @@ GET_PENDING_PREDICTIONS = Queries.get_pending_predictions()
 UPDATE_PREDICTION_OUTCOME = Queries.update_prediction_outcome()
 SET_MODELS_ARCHIVED = Queries.set_models_archived()
 GET_LAST_TRAINING_DATE = Queries.get_last_training_date()
+GET_ALL_DISTINCT_DATES = Queries.get_all_distinct_dates()
+GET_LATEST_PREDICTION_DATE = Queries.get_latest_prediction_date()

@@ -186,14 +186,7 @@ def generate_daily_report(conn, user_id: int = 1, report_date: str = None) -> st
     report_lines.append(f"Total Equity: {format_number(account_value)} VND")
     
     # Add drawdown risk status
-    risk_indicator = {
-        'NORMAL': '✅',
-        'CAUTION': '⚠️',
-        'WARNING': '🟠',
-        'EMERGENCY': '🔴'
-    }.get(drawdown_status['risk_level'], '⚪')
-    
-    report_lines.append(f"Portfolio Status: {risk_indicator} {drawdown_status['risk_level']} | Drawdown: {drawdown_status['drawdown_percent']} | Position Sizing: {int(drawdown_status['multiplier']*100)}%")
+    report_lines.append(f"Portfolio Status: {drawdown_status['risk_level']} | Drawdown: {drawdown_status['drawdown_percent']} | Position Sizing: {int(drawdown_status['multiplier']*100)}%")
     report_lines.append("=" * 100)
     report_lines.append("")
     
@@ -202,7 +195,7 @@ def generate_daily_report(conn, user_id: int = 1, report_date: str = None) -> st
     for pos in positions:
         ticker = pos['symbol']
         report_lines.append(f"{'━' * 100}")
-        report_lines.append(f"📊 {ticker}")
+        report_lines.append(f"{ticker}")
         report_lines.append(f"{'━' * 100}")
         
         # Position details
@@ -220,10 +213,9 @@ def generate_daily_report(conn, user_id: int = 1, report_date: str = None) -> st
             unrealized_pnl = quantity * (current_price - entry_price)
             unrealized_pnl_pct = ((current_price - entry_price) / entry_price) * 100
             
-            pnl_symbol = "📈" if unrealized_pnl >= 0 else "📉"
             report_lines.append(f"Current: {format_number(current_price)} VND")
             report_lines.append(
-                f"{pnl_symbol} Unrealized P&L: {format_number(unrealized_pnl)} VND "
+                f"Unrealized P&L: {format_number(unrealized_pnl)} VND "
                 f"({unrealized_pnl_pct:+.2f}%)"
             )
             
@@ -238,10 +230,10 @@ def generate_daily_report(conn, user_id: int = 1, report_date: str = None) -> st
             # Stop-loss check
             if stop_loss:
                 distance_to_stop = ((current_price - stop_loss) / current_price) * 100
-                status = "✅" if current_price > stop_loss else "🚨 TRIGGERED"
+                status = "OK" if current_price > stop_loss else "TRIGGERED"
                 
                 if current_price <= stop_loss:
-                    alerts.append(f"🚨 {ticker}: STOP LOSS TRIGGERED at {format_number(stop_loss)}")
+                    alerts.append(f"{ticker}: STOP LOSS TRIGGERED at {format_number(stop_loss)}")
                 
                 report_lines.append(
                     f"  Stop Loss: {format_number(stop_loss)} VND ({distance_to_stop:+.2f}% from current) {status}"
@@ -253,8 +245,8 @@ def generate_daily_report(conn, user_id: int = 1, report_date: str = None) -> st
                 if target_price:
                     distance = ((target_price - current_price) / current_price) * 100
                     if current_price >= target_price:
-                        status = f"🎯 REACHED"
-                        alerts.append(f"🎯 {ticker}: Target {target_num} REACHED at {format_number(target_price)}")
+                        status = "REACHED"
+                        alerts.append(f"{ticker}: Target {target_num} REACHED at {format_number(target_price)}")
                     else:
                         status = f"({distance:+.2f}% away)"
                     
@@ -266,12 +258,12 @@ def generate_daily_report(conn, user_id: int = 1, report_date: str = None) -> st
                 capacity = pm.check_buying_capacity(ticker, current_price, account_value, user_id)
                 
                 if capacity['at_limit']:
-                    report_lines.append(f"  ⚠️ AT LIMIT: {capacity['limit_reason']}")
+                    report_lines.append(f"  AT LIMIT: {capacity['limit_reason']}")
                     report_lines.append(f"  Max Buying Capability: 0 shares")
                 else:
                     max_shares = capacity['max_buyable_shares']
                     rem_val = capacity['remaining_value_capacity']
-                    report_lines.append(f"  ✅ Within Limits")
+                    report_lines.append(f"  Within Limits")
                     report_lines.append(f"  Buying Capacity: {max_shares} shares (~{format_number(rem_val)} VND)")
                     
                 # Show utilization
@@ -280,12 +272,12 @@ def generate_daily_report(conn, user_id: int = 1, report_date: str = None) -> st
                 
                 status_note = ""
                 if alloc_pct >= 18.0 and not capacity['at_limit']:
-                    status_note = " (⚠️ NEAR LIMIT)"
+                    status_note = " (NEAR LIMIT)"
                     
                 report_lines.append(f"  Portfolio Allocation: {alloc_pct:.1f}% / {alloc_limit}%{status_note}")
 
         else:
-            report_lines.append(f"❌ Current price not available")
+            report_lines.append(f"Current price not available")
             current_price = None
         
         # Get predictions
@@ -316,29 +308,19 @@ def generate_daily_report(conn, user_id: int = 1, report_date: str = None) -> st
                 strength = signal_dict['strength']
                 reason = signal_dict['reason']
                 
-                # Format signal display
-                signal_emoji = {
-                    'BUY_NEW': '🟢',
-                    'BUY_MORE': '🟦',
-                    'SELL': '🔴',
-                    'SELL_PARTIAL': '🟠',
-                    'HOLD': '⚪',
-                    'HOLD_NONE': '⚪'
-                }.get(signal, '⚪')
-                
-                report_lines.append(f"\n{signal_emoji} SIGNAL: {signal} (strength: {strength:.2f})")
+                report_lines.append(f"\nSIGNAL: {signal} (strength: {strength:.2f})")
                 report_lines.append(f"Reason: {reason}")
                 
                 # Add to alerts if action signal
                 if signal in ['SELL', 'SELL_PARTIAL', 'BUY_MORE']:
-                    alerts.append(f"{signal_emoji} {ticker}: {signal} - {reason}")
+                    alerts.append(f"{ticker}: {signal} - {reason}")
                 
             except Exception as e:
                 logger.error(f"Failed to generate signal for {ticker}: {e}")
-                report_lines.append(f"\n❌ Signal generation failed: {str(e)}")
+                report_lines.append(f"\nSignal generation failed: {str(e)}")
         else:
-            report_lines.append(f"\n❌ Predictions not available for {report_date}")
-            alerts.append(f"⚠️ {ticker}: No predictions available")
+            report_lines.append(f"\nPredictions not available for {report_date}")
+            alerts.append(f"{ticker}: No predictions available")
         
         report_lines.append("")
     
@@ -351,7 +333,7 @@ def generate_daily_report(conn, user_id: int = 1, report_date: str = None) -> st
         for alert in alerts:
             report_lines.append(alert)
     else:
-        report_lines.append("✅ No alerts - all positions within normal parameters")
+        report_lines.append("No alerts - all positions within normal parameters")
     
     report_lines.append("")
     report_lines.append("=" * 100)
@@ -384,21 +366,21 @@ def main():
             with open(args.output, 'w', encoding='utf-8') as f:
                 f.write(report)
             logger.info(f"Report saved to {args.output}")
-            print(f"✅ Report saved to {args.output}")
+            print(f"Report saved to {args.output}")
         else:
             print(report)
             
         # Send Telegram summary
         alerts_summary = _extract_alerts_summary(report)
-        alerter.send_alert(f"✅ Daily Signals generation completed for {args.date or date.today().isoformat()}.\n\n*Alerts Summary:*\n{alerts_summary}", level="INFO")
+        alerter.send_alert(f"Daily Signals generation completed for {args.date or date.today().isoformat()}.\n\n*Alerts Summary:*\n{alerts_summary}", level="INFO")
         
         conn.close()
         return 0
         
     except Exception as e:
         logger.error(f"Failed to generate daily report: {e}", exc_info=True)
-        print(f"❌ Error: {str(e)}")
-        alerter.send_alert(f"❌ Daily Signals generation failed.\nError: {e}", level="CRITICAL")
+        print(f"Error: {str(e)}")
+        alerter.send_alert(f"Daily Signals generation failed.\nError: {e}", level="CRITICAL")
         return 1
 
 def _extract_alerts_summary(report_text: str) -> str:

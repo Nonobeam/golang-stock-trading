@@ -26,8 +26,16 @@ def main() -> None:
         pred_date = sys.argv[1]
         logger.info(f"Ad-hoc historical run for date: {pred_date}")
     else:
-        pred_date = date.today().isoformat()
-        logger.info(f"Scheduled weekly run for today: {pred_date}")
+        # Instead of defaulting to today, find the most recent date with ML predictions
+        from data.loader import DataLoader
+        latest_date = DataLoader.get_latest_prediction_date()
+        if latest_date:
+            pred_date = latest_date
+            logger.info(f"No date provided. Found latest prediction date in DB: {pred_date}")
+        else:
+            # Fallback if DB is completely empty
+            pred_date = date.today().isoformat()
+            logger.warning(f"No date provided and no predictions found in DB! Defaulting to today: {pred_date}")
 
     try:
         messages = selector.run(pred_date=pred_date)

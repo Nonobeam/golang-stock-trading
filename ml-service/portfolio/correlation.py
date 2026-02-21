@@ -47,12 +47,12 @@ def build_correlation_matrix(
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT ticker, date, close
+                SELECT symbol AS ticker, date, close
                 FROM "stock-trading".daily_bars
-                WHERE ticker = ANY(%(tickers)s)
+                WHERE symbol = ANY(%(tickers)s)
                   AND date >= (%(ref_date)s::date - %(days)s)
                   AND date <= %(ref_date)s::date
-                ORDER BY ticker, date
+                ORDER BY symbol, date
                 """,
                 {"tickers": tickers, "ref_date": ref_date, "days": lookback_days},
             )

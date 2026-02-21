@@ -48,7 +48,7 @@ def build_report(
 
     # ── Section 1: Header ───────────────────────────────────────────
     header = (
-        f"📊 *Weekly Portfolio Scan*\n"
+        f"*Weekly Portfolio Scan*\n"
         f"Week of: {week_start}  |  Run: {run_date}\n"
         f"Universe: 50 stocks  |  After filter: {50 - n_eliminated}/50 candidates\n"
         f"Combos evaluated: {optimizer_meta.get('n_combos_evaluated', '?'):,}  "
@@ -58,7 +58,7 @@ def build_report(
     sections.append(header)
 
     # ── Section 2: Recommended Portfolio ────────────────────────────
-    rec_lines = ["🏆 *RECOMMENDED PORTFOLIO (Top 5)*\n"]
+    rec_lines = ["*RECOMMENDED PORTFOLIO (Top 5)*\n"]
     for stock in sorted(selected, key=lambda x: x.get("rank", 99)):
         ticker  = stock["ticker"]
         sector  = stock.get("sector", "?")
@@ -83,13 +83,13 @@ def build_report(
     cmp = comparison
     if cmp.get("no_positions"):
         cmp_text = (
-            "📂 *CURRENT HOLDINGS*\n"
+            "*CURRENT HOLDINGS*\n"
             "No open positions — entering fresh this week.\n"
             f"New entries: {', '.join(cmp.get('new_entries', []))}"
         )
     else:
         cmp_lines = [
-            f"📂 *CURRENT HOLDINGS*\n"
+            f"*CURRENT HOLDINGS*\n"
             f"Overlap with recommendation: {cmp['overlap_count']}/5  "
             f"({', '.join(cmp.get('overlap_tickers', [])) or 'none'})\n"
         ]
@@ -97,7 +97,7 @@ def build_report(
             cmp_lines.append("Rotation analysis:")
             for ex in cmp["exits"]:
                 cost_m = ex["exit_cost_vnd"] / 1_000_000
-                flag = "✅ ROTATE" if ex["rotation_suggested"] else "⏸ HOLD"
+                flag = "ROTATE" if ex["rotation_suggested"] else "HOLD"
                 repl = f" → {ex['replacement']}" if ex.get("replacement") else ""
                 cmp_lines.append(
                     f"  {flag} {ex['ticker']}{repl}  "
@@ -117,14 +117,14 @@ def build_report(
         sector_counts[sec] = sector_counts.get(sec, 0) + 1
 
     avg_corr = _avg_pairwise_corr(corr_df, selected_tickers)
-    div_lines = ["🌐 *DIVERSIFICATION*\n"]
+    div_lines = ["*DIVERSIFICATION*\n"]
     for sec, cnt in sorted(sector_counts.items()):
         div_lines.append(f"  {sec}: {cnt}")
     div_lines.append(f"Avg pairwise correlation: {avg_corr:.2f}")
     sections.append("\n".join(div_lines))
 
     # ── Section 5: Near-Misses & Warnings ──────────────────────────
-    warn_lines = ["⚠️ *NEAR-MISSES & WARNINGS*\n"]
+    warn_lines = ["*NEAR-MISSES & WARNINGS*\n"]
     near_top3 = near_misses[:3]
     if near_top3:
         warn_lines.append("Near-misses (passed filter, excluded by constraints):")

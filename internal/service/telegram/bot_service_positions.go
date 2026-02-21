@@ -106,7 +106,7 @@ func (s *BotService) handleAddPositionCommand(msg *tgbotapi.Message) {
              s.SendMessage(chatID, "Failed to add to existing position: " + err.Error())
              return
          }
-         s.SendMessage(chatID, fmt.Sprintf("✅ Added %d shares to existing %s position.", quantity, symbol))
+         s.SendMessage(chatID, fmt.Sprintf("Added %d shares to existing %s position.", quantity, symbol))
          return
     }
 
@@ -116,7 +116,7 @@ func (s *BotService) handleAddPositionCommand(msg *tgbotapi.Message) {
          return
     }
 
-	s.SendMessage(chatID, fmt.Sprintf("✅ Position opened for %s", symbol))
+	s.SendMessage(chatID, fmt.Sprintf("Position opened for %s", symbol))
 }
 
 // handleEditPositionCommand handles /editposition <symbol>
@@ -208,22 +208,22 @@ func (s *BotService) handleBuyCommand(msg *tgbotapi.Message) {
 	// Parse quantity
 	quantity, err := strconv.Atoi(args[2])
 	if err != nil {
-		s.SendMessage(chatID, "❌ Invalid quantity. Must be a number.")
+		s.SendMessage(chatID, "Invalid quantity. Must be a number.")
 		return
 	}
 	if quantity <= 0 {
-		s.SendMessage(chatID, "❌ Invalid quantity. Must be a positive number.")
+		s.SendMessage(chatID, "Invalid quantity. Must be a positive number.")
 		return
 	}
 
 	// Parse price
 	price, err := strconv.ParseFloat(args[3], 64)
 	if err != nil {
-		s.SendMessage(chatID, "❌ Invalid price. Must be a number.")
+		s.SendMessage(chatID, "Invalid price. Must be a number.")
 		return
 	}
 	if price <= 0 {
-		s.SendMessage(chatID, "❌ Invalid price. Must be a positive number.")
+		s.SendMessage(chatID, "Invalid price. Must be a positive number.")
 		return
 	}
 
@@ -232,7 +232,7 @@ func (s *BotService) handleBuyCommand(msg *tgbotapi.Message) {
 	if len(args) >= 5 {
 		purchaseDate, err = time.Parse("2006-01-02", args[4])
 		if err != nil {
-			s.SendMessage(chatID, "❌ Invalid date format. Please use YYYY-MM-DD (e.g., 2026-01-25)")
+			s.SendMessage(chatID, "Invalid date format. Please use YYYY-MM-DD (e.g., 2026-01-25)")
 			return
 		}
 	} else {
@@ -270,14 +270,14 @@ func (s *BotService) handleBuyCommand(msg *tgbotapi.Message) {
 
 		if err := s.positionSvc.AddEntry(ctx, req); err != nil {
 			logger.Error().Err(err).Msg("Failed to add entry")
-			s.SendMessage(chatID, "❌ Failed to add entry: "+err.Error())
+			s.SendMessage(chatID, "Failed to add entry: "+err.Error())
 			return
 		}
 
 		// Calculate new average
 		// We could fetch updated details, but for speed just confirm
 		confirmText := fmt.Sprintf(
-			"✅ <b>Added to %s</b>\n\n"+
+			"<b>Added to %s</b>\n\n"+
 				"<b>Quantity:</b> +%s shares\n"+
 				"<b>Price:</b> %s VND\n"+
 				"<b>Total Cost:</b> %s VND\n\n"+
@@ -312,12 +312,12 @@ func (s *BotService) handleBuyCommand(msg *tgbotapi.Message) {
 		_, err := s.positionSvc.CreatePosition(ctx, req)
 		if err != nil {
 			logger.Error().Err(err).Msg("Failed to create position")
-			s.SendMessage(chatID, "❌ Failed to create position: "+err.Error())
+			s.SendMessage(chatID, "Failed to create position: "+err.Error())
 			return
 		}
 
 		confirmText := fmt.Sprintf(
-			"✅ <b>New Position: %s</b>\n\n"+
+			"<b>New Position: %s</b>\n\n"+
 				"<b>Quantity:</b> %s shares\n"+
 				"<b>Entry Price:</b> %s VND\n"+
 				"<b>Stop Loss:</b> %s VND (Auto -7%%)\n"+
@@ -340,7 +340,7 @@ func (s *BotService) handlePositionDetailCommand(msg *tgbotapi.Message) {
 
 	// Verify dependencies
 	if s.positionRepo == nil {
-		s.SendMessage(chatID, "⚠️ Position management not configured")
+		s.SendMessage(chatID, "Position management not configured")
 		return
 	}
 
@@ -403,31 +403,24 @@ func (s *BotService) handlePositionDetailCommand(msg *tgbotapi.Message) {
 	var msgBuilder strings.Builder
 	
 	// Header
-	plEmoji := "📊"
-	if unrealizedPL > 0 {
-		plEmoji = "🟢"
-	} else if unrealizedPL < 0 {
-		plEmoji = "🔴"
-	}
-	
-	msgBuilder.WriteString(fmt.Sprintf("<b>%s Position Details: %s</b>\n\n", plEmoji, symbol))
+	msgBuilder.WriteString(fmt.Sprintf("<b>Position Details: %s</b>\n\n", symbol))
 	
 	// Entry Details
-	msgBuilder.WriteString("<b>📥 Entry Details</b>\n")
+	msgBuilder.WriteString("<b>Entry Details</b>\n")
 	msgBuilder.WriteString(fmt.Sprintf("  Entry Date: %s\n", position.EntryDate.Format("2006-01-02")))
 	msgBuilder.WriteString(fmt.Sprintf("  Entry Price: %s VND\n", formatPrice(position.EntryPrice)))
 	msgBuilder.WriteString(fmt.Sprintf("  Quantity: %s shares\n", formatNumber(position.Quantity)))
 	msgBuilder.WriteString(fmt.Sprintf("  Position Value: %s VND\n\n", formatPrice(position.EntryPrice*float64(position.Quantity))))
 	
 	// Current Status
-	msgBuilder.WriteString("<b>📈 Current Status</b>\n")
+	msgBuilder.WriteString("<b>Current Status</b>\n")
 	msgBuilder.WriteString(fmt.Sprintf("  Current Price: %s VND\n", formatPrice(currentPrice)))
 	msgBuilder.WriteString(fmt.Sprintf("  Days in Trade: %d\n", daysInTrade))
 	msgBuilder.WriteString(fmt.Sprintf("  Unrealized P&L: %s VND (<b>%+.2f%%</b>)\n", formatPrice(unrealizedPL), unrealizedPLPercent))
 	msgBuilder.WriteString(fmt.Sprintf("  R-Multiple: <b>%+.2fR</b>\n\n", rMultiple))
 	
 	// Risk Management
-	msgBuilder.WriteString("<b>🛡️ Risk Management</b>\n")
+	msgBuilder.WriteString("<b>Risk Management</b>\n")
 	msgBuilder.WriteString(fmt.Sprintf("  Stop Loss: %s VND\n", formatPrice(position.StopLoss)))
 	msgBuilder.WriteString(fmt.Sprintf("  Distance to Stop: %s VND (%.2f%%)\n", formatPrice(stopDistance), stopDistancePercent))
 	msgBuilder.WriteString(fmt.Sprintf("  Risk/Share: %s VND\n", formatPrice(riskPerShare)))
@@ -437,18 +430,18 @@ func (s *BotService) handlePositionDetailCommand(msg *tgbotapi.Message) {
 	if (position.Target1 != nil && *position.Target1 > 0) || 
 	   (position.Target2 != nil && *position.Target2 > 0) || 
 	   (position.Target3 != nil && *position.Target3 > 0) {
-		msgBuilder.WriteString("\n<b>🎯 Targets</b>\n")
+		msgBuilder.WriteString("\n<b>Targets</b>\n")
 		
 		if position.Target1 != nil && *position.Target1 > 0 {
 			t1Distance := *position.Target1 - currentPrice
 			t1Percent := (t1Distance / currentPrice) * 100
 			t1R := (*position.Target1 - position.EntryPrice) / riskPerShare
 			t1Hit := currentPrice >= *position.Target1
-			hitEmoji := "⏳"
+			hitStatus := ""
 			if t1Hit {
-				hitEmoji = "✅"
+				hitStatus = "[HIT]"
 			}
-			msgBuilder.WriteString(fmt.Sprintf("  %s T1: %s VND (+%.1f%%, %.1fR)\n", hitEmoji, formatPrice(*position.Target1), t1Percent, t1R))
+			msgBuilder.WriteString(fmt.Sprintf("  T1: %s VND (+%.1f%%, %.1fR) %s\n", formatPrice(*position.Target1), t1Percent, t1R, hitStatus))
 		}
 		
 		if position.Target2 != nil && *position.Target2 > 0 {
@@ -456,11 +449,11 @@ func (s *BotService) handlePositionDetailCommand(msg *tgbotapi.Message) {
 			t2Percent := (t2Distance / currentPrice) * 100
 			t2R := (*position.Target2 - position.EntryPrice) / riskPerShare
 			t2Hit := currentPrice >= *position.Target2
-			hitEmoji := "⏳"
+			hitStatus := ""
 			if t2Hit {
-				hitEmoji = "✅"
+				hitStatus = "[HIT]"
 			}
-			msgBuilder.WriteString(fmt.Sprintf("  %s T2: %s VND (+%.1f%%, %.1fR)\n", hitEmoji, formatPrice(*position.Target2), t2Percent, t2R))
+			msgBuilder.WriteString(fmt.Sprintf("  T2: %s VND (+%.1f%%, %.1fR) %s\n", formatPrice(*position.Target2), t2Percent, t2R, hitStatus))
 		}
 		
 		if position.Target3 != nil && *position.Target3 > 0 {
@@ -468,17 +461,17 @@ func (s *BotService) handlePositionDetailCommand(msg *tgbotapi.Message) {
 			t3Percent := (t3Distance / currentPrice) * 100
 			t3R := (*position.Target3 - position.EntryPrice) / riskPerShare
 			t3Hit := currentPrice >= *position.Target3
-			hitEmoji := "⏳"
+			hitStatus := ""
 			if t3Hit {
-				hitEmoji = "✅"
+				hitStatus = "[HIT]"
 			}
-			msgBuilder.WriteString(fmt.Sprintf("  %s T3: %s VND (+%.1f%%, %.1fR)\n", hitEmoji, formatPrice(*position.Target3), t3Percent, t3R))
+			msgBuilder.WriteString(fmt.Sprintf("  T3: %s VND (+%.1f%%, %.1fR) %s\n", formatPrice(*position.Target3), t3Percent, t3R, hitStatus))
 		}
 	}
 	
 	// Additional Info
 	if (position.SignalType != nil && *position.SignalType != "") || (position.Score != nil && *position.Score > 0) {
-		msgBuilder.WriteString("\n<b>ℹ️ Additional Info</b>\n")
+		msgBuilder.WriteString("\n<b>Additional Info</b>\n")
 		if position.SignalType != nil && *position.SignalType != "" {
 			msgBuilder.WriteString(fmt.Sprintf("  Signal Type: %s\n", *position.SignalType))
 		}

@@ -82,12 +82,12 @@ def get_volume_map(tickers: List[str], lookback_days: int = 90, date: Optional[s
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT ticker, AVG(volume) / 1000.0 AS avg_vol_k
+                SELECT symbol AS ticker, AVG(volume) / 1000.0 AS avg_vol_k
                 FROM "stock-trading".daily_bars
-                WHERE ticker = ANY(%(tickers)s)
+                WHERE symbol = ANY(%(tickers)s)
                   AND date >= (%(ref_date)s::date - %(days)s)
                   AND date <= %(ref_date)s::date
-                GROUP BY ticker
+                GROUP BY symbol
                 """,
                 {"tickers": tickers, "ref_date": ref_date, "days": lookback_days},
             )
