@@ -24,7 +24,108 @@ from datetime import date
 # Configure logging
 logger = setup_logging("grpc_server")
 
+
+
+# ──────────────────────────────────────────────────────────────────
+# Module-level helper: floor-hit classifier
+# ──────────────────────────────────────────────────────────────────
+
+def _run_floor_classifier(ticker: str, pred_date: str) -> None:
+    """
+    Train (or retrain) the FloorHitClassifier for `ticker`, run inference
+    using the latest features row, and store the result in
+    `floor_hit_probabilities`.
+
+    Non-fatal: any exception is logged as WARNING so the main retrain
+    pipeline is not blocked.
+    """
+    try:
+        from models.floor_hit_classifier import FloorHitClassifier
+        from db.connection import get_connection
+
+        # Determine exchange from stock_universe (fallback HOSE)
+        conn = get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    'SELECT exchange FROM "stock-trading".stock_universe '
+                    'WHERE ticker = %s LIMIT 1',
+                    (ticker,),
+                )
+                row = cur.fetchone()
+                exchange = row["exchange"] if row and row.get("exchange") else "HOSE"
+
+                # Fetch latest features + last 10 daily returns for consecutive_down
+                cur.execute(
+                    """
+                    SELECT f.return_1d, f.return_5d, f.return_20d,
+                           f.volume_ratio_5d, f.volatility_5d, f.rsi_14,
+                           f.sma_5, f.sma_20,
+                           (SELECT ARRAY(
+                               SELECT return_1d FROM "stock-trading".features
+                               WHERE ticker = %s AND features_complete = TRUE
+                               ORDER BY date DESC LIMIT 10
+                           )) AS recent_returns
+                    FROM "stock-trading".features f
+                    WHERE f.ticker = %s AND f.features_complete = TRUE
+                    ORDER BY f.date DESC LIMIT 1
+                    """,
+                    (ticker, ticker),
+                )
+                feat_row = cur.fetchone()
+        finally:
+            conn.close()
+
+        if not feat_row:
+            logger.warning(f"_run_floor_classifier: no features for {ticker}, skipping")
+            return
+
+        # Compute consecutive_down from recent return_1d values
+        recent = [float(r) for r in (feat_row["recent_returns"] or []) if r is not None]
+        consecutive_down = 0
+        for r in recent:          # already DESC order, so first = most recent
+            if r < 0:
+                consecutive_down += 1
+            else:
+                break
+
+        sma20 = float(feat_row["sma_20"] or 0)
+        sma5  = float(feat_row["sma_5"]  or 0)
+        features = {
+            "momentum_5d":           float(feat_row["return_5d"]       or 0),
+            "volume_surge":          float(feat_row["volume_ratio_5d"] or 1),
+            "consecutive_down":      consecutive_down,
+            "distance_from_support": (sma5 - sma20) / sma20 if sma20 else 0.0,
+            "volatility_5d":         float(feat_row["volatility_5d"]   or 0),
+            "relative_strength":     float(feat_row["return_5d"] or 0) - float(feat_row["return_20d"] or 0),
+            "rsi_14":                float(feat_row["rsi_14"]           or 50),
+        }
+
+        classifier = FloorHitClassifier(exchange=exchange)
+
+        # Train if model file doesn't exist yet; otherwise just load & predict
+        model_path = classifier.models_dir / f"{ticker}_floor.json"
+        if not model_path.exists():
+            logger.info(f"Floor classifier: training new model for {ticker}")
+            classifier.train(ticker)
+        else:
+            classifier.floor_model   = __import__("xgboost").XGBClassifier()
+            classifier.floor_model.load_model(str(model_path))
+            ceiling_path = classifier.models_dir / f"{ticker}_ceiling.json"
+            classifier.ceiling_model = __import__("xgboost").XGBClassifier()
+            classifier.ceiling_model.load_model(str(ceiling_path))
+
+        floor_prob   = classifier.predict_floor_probability(ticker, features)
+        ceiling_prob = classifier.predict_ceiling_probability(ticker, features)
+        classifier.store_prediction(ticker, pred_date, floor_prob, ceiling_prob)
+        logger.info(f"Floor classifier: {ticker} floor_prob={floor_prob:.3f} ceiling_prob={ceiling_prob:.3f}")
+
+    except Exception as exc:
+        logger.warning(f"Floor classifier skipped for {ticker}: {exc}")
+
+
 class MLPredictionServicer(ml_service_pb2_grpc.MLPredictionServiceServicer):
+
     """Implementation of MLPredictionService."""
     
     def __init__(self):
@@ -340,12 +441,15 @@ class MLPredictionServicer(ml_service_pb2_grpc.MLPredictionServiceServicer):
                 logger.info(f"[{idx}/{total}] Generating predictions for {ticker} on {pred_date}...")
                 gen.generate_daily_predictions([ticker], pred_date)
 
+                # 4. Floor-hit classifier → floor_hit_probabilities table
+                _run_floor_classifier(ticker, pred_date)
+
                 yield ml_service_pb2.BulkRetrainUpdate(
                     ticker=ticker, idx=idx, total=total,
                     success=True,
                     message=(
                         f"[{idx}/{total}] ({pct:.0f}%) {ticker} done\n"
-                        f"Trained + predictions written for {pred_date}"
+                        f"Trained + predictions + floor risk written for {pred_date}"
                     ),
                 )
 

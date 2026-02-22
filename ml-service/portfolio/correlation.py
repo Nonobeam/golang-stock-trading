@@ -69,7 +69,7 @@ def build_correlation_matrix(
 
     # Build close price pivot: date x ticker
     df = pd.DataFrame(rows)
-    pivot = df.pivot(index="date", columns="ticker", values="close").sort_index()
+    pivot = df.pivot(index="date", columns="ticker", values="close").sort_index().astype(float)
 
     # Daily log returns
     returns = np.log(pivot / pivot.shift(1)).dropna(how="all")

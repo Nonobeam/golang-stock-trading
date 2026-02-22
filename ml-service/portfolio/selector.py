@@ -81,30 +81,49 @@ def _load_predictions(tickers: List[str], pred_date: str) -> Dict[str, Dict[int,
 
 def _load_floor_probs(tickers: List[str], pred_date: str) -> Dict[str, float]:
     """
-    Load floor-hit probabilities from predictions table.
+    Load floor-hit probabilities from the floor_hit_probabilities table.
 
-    Floor-hit probability is stored as the negative of p10 when p10 < 0
-    (a proxy computed by the ML model), or fetched from a dedicated signals
-    field if available. Defaults to 0.0 for missing tickers.
-
-    Note: adjust this logic if the floor_hit_probability is stored in a
-          separate table or signals metadata field.
+    Reads the most recent row per ticker on or before pred_date.
+    Falls back to a p10-based proxy for tickers not yet in the table
+    (e.g. before the first /train all run populates it).
     """
-    preds = _load_predictions(tickers, pred_date)
     floor_probs: Dict[str, float] = {}
-    for t in tickers:
-        t_preds = preds.get(t, {})
-        # Proxy: use the p10 of the 1d horizon as a floor risk estimate
-        # Negative return at p10 implies >50% chance of loss > |p10|
-        # A proper floor-hit model should replace this.
-        p1d = t_preds.get(1, {})
-        p10_1d = float(p1d.get("p10", 0.0)) if p1d else 0.0
-        # Map p10_1d in [-0.07, 0] → floor_prob in [1.0, 0.0]
-        if p10_1d >= 0:
-            fp = 0.0
-        else:
-            fp = min(1.0, abs(p10_1d) / 0.07)
-        floor_probs[t] = fp
+
+    try:
+        conn = get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT DISTINCT ON (ticker)
+                        ticker, floor_probability
+                    FROM floor_hit_probabilities
+                    WHERE ticker = ANY(%(tickers)s)
+                      AND prediction_date <= %(pred_date)s
+                    ORDER BY ticker, prediction_date DESC
+                    """,
+                    {"tickers": tickers, "pred_date": pred_date},
+                )
+                for row in cur.fetchall():
+                    floor_probs[row["ticker"]] = float(row["floor_probability"] or 0.0)
+        finally:
+            conn.close()
+    except Exception as e:
+        logger.warning(f"Could not read floor_hit_probabilities table: {e} — using proxy for all tickers")
+
+    # Proxy fallback for tickers missing from the table
+    missing = [t for t in tickers if t not in floor_probs]
+    if missing:
+        logger.warning(
+            f"{len(missing)} tickers not in floor_hit_probabilities table "
+            f"(run /train all to populate). Using p10 proxy for: {missing[:5]}{'...' if len(missing) > 5 else ''}"
+        )
+        preds = _load_predictions(missing, pred_date)
+        for t in missing:
+            p1d = preds.get(t, {}).get(1, {})
+            p10_1d = float(p1d.get("p10", 0.0)) if p1d else 0.0
+            floor_probs[t] = min(1.0, abs(p10_1d) / 0.07) if p10_1d < 0 else 0.0
+
     return floor_probs
 
 

@@ -306,6 +306,10 @@ class FloorHitClassifier:
             INSERT INTO floor_hit_probabilities
             (ticker, exchange, prediction_date, floor_probability, ceiling_probability)
             VALUES (%s, %s, %s, %s, %s)
+            ON CONFLICT (ticker, prediction_date) DO UPDATE SET
+                floor_probability   = EXCLUDED.floor_probability,
+                ceiling_probability = EXCLUDED.ceiling_probability,
+                exchange            = EXCLUDED.exchange
         """, (ticker, self.exchange, prediction_date, floor_prob, ceiling_prob))
         
         conn.commit()

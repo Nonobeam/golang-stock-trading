@@ -1025,7 +1025,8 @@ func (s *BotService) handleTrainCommand(msg *tgbotapi.Message) {
 			"<b>Training Complete!</b>\n\n"+
 				"Symbol: <code>%s</code>\n"+
 				"Model Version: <code>%s</code>\n\n"+
-				"The AI model is now ready for predictions.",
+				"Model trained + predictions written to DB.\n"+
+				"You can now run /scan!",
 			symbol, resp.ModelVersion))
 	}(chatID)
 }
