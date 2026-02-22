@@ -103,7 +103,7 @@ class WalkForwardValidator:
                    LEAD(d.close, {horizon_days}) OVER (ORDER BY f.date) as future_price,
                    d.close as current_price
             FROM "{DB_SCHEMA}".features f
-            JOIN "{DB_SCHEMA}".daily_bars d ON f.ticker = d.ticker AND f.date = d.date
+            JOIN "{DB_SCHEMA}".daily_bars d ON f.ticker = d.symbol AND f.date = d.date
             WHERE f.ticker = %s 
               AND f.date BETWEEN %s AND %s
               AND f.features_complete = TRUE
