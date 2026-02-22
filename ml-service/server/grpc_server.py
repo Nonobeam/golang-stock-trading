@@ -385,37 +385,55 @@ class MLPredictionServicer(ml_service_pb2_grpc.MLPredictionServiceServicer):
         """
         Streaming bulk retrain — yields one BulkRetrainUpdate per ticker.
 
-        Pipeline per ticker:
+        Pipeline per ticker (parallelised):
           1. Backfill features from daily_bars
-          2. Train XGBoost model
+          2. Train XGBoost model (1d, 5d, 10d horizons)
           3. Run inference → write predictions to DB
+          4. Floor-hit classifier → floor_hit_probabilities table
+
+        Workers run in a ThreadPoolExecutor (XGBoost releases the GIL, so
+        threads give real concurrency despite the GIL).  Results are put onto
+        a queue; the main generator thread drains it and yields to gRPC.
+
+        Number of workers is controlled by the BULK_RETRAIN_WORKERS env var
+        (default 4).  Set to 1 to restore sequential behaviour.
 
         Go reads the stream and calls SendMessage() for each yielded update.
-        No Telegram credentials needed here.
         """
+        import queue
+        import threading
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
         from data.loader import DataLoader
         from backfill_features import backfill_features
         from daily.retrainer import Retrainer
         from daily.prediction_generator import PredictionGenerator
 
-        tickers = DataLoader.get_active_tickers()
-        total = len(tickers)
-        force = request.force
+        tickers  = DataLoader.get_active_tickers()
+        total    = len(tickers)
+        force    = request.force
+        n_workers = int(os.environ.get("BULK_RETRAIN_WORKERS", "4"))
 
         pred_date = DataLoader.get_latest_bar_date()
         if not pred_date:
             from datetime import date as _date
             pred_date = _date.today().isoformat()
 
-        logger.info(f"TriggerBulkRetrain: {total} tickers, pred_date={pred_date}, force={force}")
+        logger.info(
+            f"TriggerBulkRetrain: {total} tickers, pred_date={pred_date}, "
+            f"force={force}, workers={n_workers}"
+        )
 
-        retrainer = Retrainer()
-        gen = PredictionGenerator()
-        retrained = 0
-        failed = 0
+        result_queue: "queue.Queue[ml_service_pb2.BulkRetrainUpdate | None]" = queue.Queue()
+        retrained_count = [0]   # mutable container for thread-safe increment
+        failed_count    = [0]
+        lock = threading.Lock()
 
-        for idx, ticker in enumerate(tickers, start=1):
+        # ── Worker function (runs in thread pool) ──────────────────────
+        def _process_ticker(idx: int, ticker: str) -> None:
             pct = idx / total * 100
+            retrainer = Retrainer()
+            gen = PredictionGenerator()
             try:
                 # 1. Backfill
                 logger.info(f"[{idx}/{total}] Backfilling {ticker}...")
@@ -425,51 +443,79 @@ class MLPredictionServicer(ml_service_pb2_grpc.MLPredictionServiceServicer):
                 should = force or retrainer.should_retrain(ticker)
                 if not should:
                     logger.info(f"[{idx}/{total}] {ticker} skipped (up to date)")
-                    yield ml_service_pb2.BulkRetrainUpdate(
+                    result_queue.put(ml_service_pb2.BulkRetrainUpdate(
                         ticker=ticker, idx=idx, total=total,
                         success=True,
                         message=f"[{idx}/{total}] ({pct:.0f}%) {ticker}: skipped (model up to date)",
-                    )
-                    continue
+                    ))
+                    return
 
                 logger.info(f"[{idx}/{total}] Training {ticker}...")
                 if not retrainer.retrain_models(ticker):
                     raise RuntimeError("retrain_models returned False")
-                retrained += 1
+                with lock:
+                    retrained_count[0] += 1
 
                 # 3. Inference → predictions table
                 logger.info(f"[{idx}/{total}] Generating predictions for {ticker} on {pred_date}...")
                 gen.generate_daily_predictions([ticker], pred_date)
 
-                # 4. Floor-hit classifier → floor_hit_probabilities table
+                # 4. Floor-hit classifier
                 _run_floor_classifier(ticker, pred_date)
 
-                yield ml_service_pb2.BulkRetrainUpdate(
+                result_queue.put(ml_service_pb2.BulkRetrainUpdate(
                     ticker=ticker, idx=idx, total=total,
                     success=True,
                     message=(
                         f"[{idx}/{total}] ({pct:.0f}%) {ticker} done\n"
                         f"Trained + predictions + floor risk written for {pred_date}"
                     ),
-                )
+                ))
 
             except Exception as e:
-                failed += 1
+                with lock:
+                    failed_count[0] += 1
                 logger.error(f"[{idx}/{total}] {ticker} failed: {e}")
-                yield ml_service_pb2.BulkRetrainUpdate(
+                result_queue.put(ml_service_pb2.BulkRetrainUpdate(
                     ticker=ticker, idx=idx, total=total,
                     success=False,
                     message=f"[{idx}/{total}] ({pct:.0f}%) {ticker} FAILED: {e}",
-                )
+                ))
+
+        # ── Launch workers, drain queue, yield results ─────────────────
+        _SENTINEL = None  # signals queue is exhausted
+
+        def _run_pool():
+            with ThreadPoolExecutor(max_workers=n_workers) as pool:
+                futures = [
+                    pool.submit(_process_ticker, idx, ticker)
+                    for idx, ticker in enumerate(tickers, start=1)
+                ]
+                # Wait for all futures (exceptions are captured inside _process_ticker)
+                for f in as_completed(futures):
+                    f.result()   # re-raises any unexpected exception not caught above
+            result_queue.put(_SENTINEL)  # signal completion
+
+        thread = threading.Thread(target=_run_pool, daemon=True)
+        thread.start()
+
+        # Drain queue on the main generator thread (gRPC requires yield here)
+        while True:
+            item = result_queue.get()
+            if item is _SENTINEL:
+                break
+            yield item
+
+        thread.join()
 
         # Final summary
         yield ml_service_pb2.BulkRetrainUpdate(
             idx=total, total=total,
-            success=(failed == 0),
+            success=(failed_count[0] == 0),
             is_final=True,
             message=(
                 f"Bulk retrain complete.\n"
-                f"Checked: {total}  Retrained: {retrained}  Failed: {failed}\n\n"
+                f"Checked: {total}  Retrained: {retrained_count[0]}  Failed: {failed_count[0]}\n\n"
                 f"Predictions written for: {pred_date}\n"
                 f"You can now run /scan!"
             ),

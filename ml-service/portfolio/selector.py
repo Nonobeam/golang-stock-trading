@@ -83,9 +83,13 @@ def _load_floor_probs(tickers: List[str], pred_date: str) -> Dict[str, float]:
     """
     Load floor-hit probabilities from the floor_hit_probabilities table.
 
-    Reads the most recent row per ticker on or before pred_date.
-    Falls back to a p10-based proxy for tickers not yet in the table
-    (e.g. before the first /train all run populates it).
+    Reads the most recent row per ticker within the last 7 calendar days
+    (≈ 5 trading days) of pred_date.  Using a staleness window means a
+    probability older than one week is treated as missing and the proxy
+    fallback fires — rather than silently using a months-old value.
+
+    Falls back to a p10-based proxy for tickers not in the table or whose
+    most-recent entry is older than the window (e.g. pipeline outage).
     """
     floor_probs: Dict[str, float] = {}
 
@@ -99,6 +103,7 @@ def _load_floor_probs(tickers: List[str], pred_date: str) -> Dict[str, float]:
                         ticker, floor_probability
                     FROM floor_hit_probabilities
                     WHERE ticker = ANY(%(tickers)s)
+                      AND prediction_date >= %(pred_date)s::date - INTERVAL '7 days'
                       AND prediction_date <= %(pred_date)s
                     ORDER BY ticker, prediction_date DESC
                     """,
@@ -110,6 +115,7 @@ def _load_floor_probs(tickers: List[str], pred_date: str) -> Dict[str, float]:
             conn.close()
     except Exception as e:
         logger.warning(f"Could not read floor_hit_probabilities table: {e} — using proxy for all tickers")
+
 
     # Proxy fallback for tickers missing from the table
     missing = [t for t in tickers if t not in floor_probs]

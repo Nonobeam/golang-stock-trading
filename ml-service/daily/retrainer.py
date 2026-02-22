@@ -81,14 +81,27 @@ class Retrainer:
         logger.info(f"Starting retraining for {ticker}")
         
         try:
-            trainer = ModelTrainer(ticker)
-            
-            # Train models (use 1000 days or more?)
-            # The status file mentioned "trainer.train_all_models(days=1000)"
-            results = trainer.train_all_models(days=1000)
-            
-            # Save results to DB
-            self._save_results(ticker, results, trainer)
+            import config
+            from data import load_features_for_training, get_feature_columns
+            from models import train_all_quantiles
+            from train import validate_data_sufficiency, save_models
+
+            validate_data_sufficiency(ticker)
+            df = load_features_for_training(ticker)
+            if len(df) < config.MIN_HISTORY_REQUIRED:
+                raise ValueError(f"Insufficient data: {len(df)} samples, need {config.MIN_HISTORY_REQUIRED}")
+
+            feature_cols = get_feature_columns()
+            models, metrics = train_all_quantiles(
+                df,
+                feature_cols,
+                config.HYPERPARAMETERS,
+                config.TRAINING_WINDOW,
+                config.VALIDATION_WINDOW,
+                config.TEST_WINDOW,
+                horizons=[1, 5, 10]
+            )
+            save_models(models, ticker, metrics, config.MODELS_DIR)
             
             logger.info(f"Successfully retrained models for {ticker}")
             return True

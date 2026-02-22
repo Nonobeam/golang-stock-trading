@@ -63,8 +63,17 @@ PORTFOLIO_CONFIG = {
     "portfolio_size":       5,       # number of stocks to select
     "max_sector_count":     2,       # max stocks from same sector in portfolio
     "max_pairwise_corr":    0.70,    # max allowed pairwise correlation
-    "default_unknown_corr": 0.50,    # assumed correlation when history < 30 days overlap
-    "min_history_days":     60,      # min trading days needed for correlation
+
+    # --- Correlation matrix tuning ---
+    # Pairs with fewer than corr_min_overlap_days of shared history are considered
+    # "unknown" and get the conservative corr_unknown_penalty instead of raw corr.
+    # Pairs with >= corr_full_trust_days get full trust; in between they are
+    # blended toward 0.5 (neutral) proportionally to the overlap shortfall.
+    # The most-recent corr_full_trust_days are always used for long-history pairs.
+    "corr_min_overlap_days":  90,    # < 90 shared trading days → unknown
+    "corr_full_trust_days":   252,   # >= 252 days → use raw correlation (cap window)
+    "corr_unknown_penalty":   0.60,  # conservative stand-in for unknown pairs
+    "default_unknown_corr":   0.50,  # neutral blend target for short overlaps
 
     # --- Rotation threshold ---
     "rotation_score_improvement": 0.15,  # replacement must score >= 15% higher to recommend swap

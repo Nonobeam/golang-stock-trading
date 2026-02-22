@@ -163,6 +163,7 @@ def compute_scores(
         enriched = dict(stock)
         enriched["composite_score"] = composite
         enriched["score_breakdown"] = breakdown
+        enriched["avg_daily_vol_k"] = vol_k
         scored.append(enriched)
 
     scored.sort(key=lambda x: x["composite_score"], reverse=True)
