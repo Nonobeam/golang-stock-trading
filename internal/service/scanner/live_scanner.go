@@ -42,7 +42,7 @@ type LiveScanner struct {
 
 	// Database repositories
 	signalRepo     *repository.SignalHistoryRepository
-	watchlistRepo  *repository.WatchlistRepository
+	universeRepo   *repository.StockUniverseRepository
 	userConfigRepo *repository.UserConfigRepository
 	regimeRepo     *ftd.Repository
 
@@ -104,7 +104,7 @@ func NewLiveScanner(cfg *Config) *LiveScanner {
 		botService:       cfg.BotService,
 
 		signalRepo:       repository.NewSignalHistoryRepository(cfg.DB),
-		watchlistRepo:    repository.NewWatchlistRepository(cfg.DB),
+		universeRepo:     repository.NewStockUniverseRepository(cfg.DB),
 		userConfigRepo:   repository.NewUserConfigRepository(cfg.DB),
 		regimeRepo:       cfg.RegimeRepo,
 		minScore:         cfg.MinScore,
@@ -121,7 +121,7 @@ func (s *LiveScanner) SetSignalCallback(callback func(signal *DetectedSignal)) {
 	s.onSignalDetected = callback
 }
 
-// Start begins scanning watchlist symbols
+// Start begins scanning universe symbols
 func (s *LiveScanner) Start() error {
 	s.mu.Lock()
 	if s.running {
@@ -133,13 +133,13 @@ func (s *LiveScanner) Start() error {
 
 	logger.Info().Msg("Live scanner starting...")
 
-	// Load watchlist symbols from database
-	symbols, err := s.watchlistRepo.GetSymbols(s.ctx)
+	// Load universe symbols from database
+	symbols, err := s.universeRepo.GetActiveSymbols(s.ctx)
 	if err != nil {
-		return fmt.Errorf("failed to load watchlist: %w", err)
+		return fmt.Errorf("failed to load universe: %w", err)
 	}
 
-	logger.Info().Int("count", len(symbols)).Msg("Loaded watchlist symbols")
+	logger.Info().Int("count", len(symbols)).Msg("Loaded universe symbols")
 
 	// Subscribe to WebSocket streams for each symbol
 	for _, symbol := range symbols {
@@ -413,9 +413,9 @@ func (s *LiveScanner) parseBar(payload []byte) (data.OHLCV, error) {
 	}, nil
 }
 
-// RefreshWatchlist reloads watchlist from database
-func (s *LiveScanner) RefreshWatchlist() error {
-	symbols, err := s.watchlistRepo.GetSymbols(s.ctx)
+// RefreshUniverse reloads universe from database
+func (s *LiveScanner) RefreshUniverse() error {
+	symbols, err := s.universeRepo.GetActiveSymbols(s.ctx)
 	if err != nil {
 		return err
 	}
@@ -429,7 +429,7 @@ func (s *LiveScanner) RefreshWatchlist() error {
 		newSymbols[sym] = true
 	}
 
-	// Remove symbols no longer in watchlist
+	// Remove symbols no longer in universe
 	for sym := range s.watching {
 		if !newSymbols[sym] {
 			s.unwatchSymbol(sym)
