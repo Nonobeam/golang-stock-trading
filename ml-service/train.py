@@ -104,8 +104,8 @@ def register_models_in_db(ticker, model_paths, metadata):
             
             # Get date range for this horizon
             dates = metadata['data_ranges'][h_str]
-            train_dates = [datetime.fromisoformat(d) if 'T' in d else datetime.strptime(d, "%Y-%m-%d %H:%M:%S") for d in dates['train']]
-            val_dates = [datetime.fromisoformat(d) if 'T' in d else datetime.strptime(d, "%Y-%m-%d %H:%M:%S") for d in dates['validation']] if dates['validation'] else []
+            train_dates = [datetime.fromisoformat(d) if 'T' in d else datetime.strptime(d, "%Y-%m-%d") for d in dates['train']]
+            val_dates = [datetime.fromisoformat(d) if 'T' in d else datetime.strptime(d, "%Y-%m-%d") for d in dates['validation']] if dates['validation'] else []
             
             train_start = min(train_dates)
             train_end = max(train_dates)
