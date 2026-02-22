@@ -148,7 +148,7 @@ func main() {
 	// === Initialize API Server ===
 	// Start API server after all dependencies are initialized
 	go func() {
-		startAPIServer(cfg, marketService, accountService, positionService, signalService, watchlistService, recommendationService, stockPrefRepo, otpService, jwtService)
+		startAPIServer(cfg, dbConn, marketService, accountService, positionService, signalService, watchlistService, recommendationService, stockPrefRepo, otpService, jwtService)
 	}()
 
 	authService := auth.NewAuthService(cfg, redisClient)
@@ -361,6 +361,7 @@ func main() {
 
 func startAPIServer(
 	cfg *config.Config,
+	dbConn *sql.DB,
 	marketService *market.Service,
 	accountService *account.Service,
 	positionService *position.Service,
@@ -373,7 +374,7 @@ func startAPIServer(
 ) {
 	// Initialize handlers
 	handlerDeps := router.HandlerDeps{
-		MarketHandler:         handler.NewMarketHandler(marketService),
+		MarketHandler:         handler.NewMarketHandler(marketService, dbConn),
 		AccountHandler:        handler.NewAccountHandler(accountService),
 		PositionHandler:       handler.NewPositionHandler(positionService),
 		SignalHandler:         handler.NewSignalHandler(signalService),

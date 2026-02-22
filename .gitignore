@@ -42,17 +42,6 @@ vendor/
 .DS_Store
 Thumbs.db
 
-# # Claude Code
-# .claude/
-# PROJECT_STRUCTURE.md
-# AGENTS.md
-# CLAUDE.md
-# openspec/
-# docs/
-# .agent
-# bin/
-
-
 # Project specific
 # (Add any specific build artifacts here if known, e.g. the binary name)
 

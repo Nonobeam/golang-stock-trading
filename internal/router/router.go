@@ -36,6 +36,7 @@ func NewRouter(deps HandlerDeps, cfg *config.Config) *mux.Router {
 	api.HandleFunc("/market/indices/{indexKey}/history", deps.MarketHandler.GetIndexHistory).Methods("GET", "OPTIONS")
 	api.HandleFunc("/market/regime", deps.MarketHandler.GetMarketRegime).Methods("GET", "OPTIONS")
 	api.HandleFunc("/market/quote/{symbol}", deps.MarketHandler.GetQuote).Methods("GET", "OPTIONS")
+	api.HandleFunc("/market/universe", deps.MarketHandler.GetUniverse).Methods("GET", "OPTIONS")
 
 	api.HandleFunc("/account/info", deps.AccountHandler.GetAccountInfo).Methods("GET", "OPTIONS")
 	api.HandleFunc("/account/summary", deps.AccountHandler.GetAccountSummary).Methods("GET", "OPTIONS")

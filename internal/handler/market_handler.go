@@ -1,23 +1,30 @@
 package handler
 
 import (
+	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
 
 	"github.com/gorilla/mux"
+	"github.com/nonobeam/golang-stock-trading/internal/db/repository"
 	"github.com/nonobeam/golang-stock-trading/internal/logger"
 	"github.com/nonobeam/golang-stock-trading/internal/service/market"
 )
 
 // MarketHandler handles market data endpoints
 type MarketHandler struct {
-	svc *market.Service
+	svc           *market.Service
+	universeRepo  *repository.StockUniverseRepository
 }
 
 // NewMarketHandler creates a new market handler
-func NewMarketHandler(svc *market.Service) *MarketHandler {
-	return &MarketHandler{svc: svc}
+func NewMarketHandler(svc *market.Service, db *sql.DB) *MarketHandler {
+	return &MarketHandler{
+		svc:          svc,
+		universeRepo: repository.NewStockUniverseRepository(db),
+	}
 }
 
 // GetIndices handles GET /api/market/indices
@@ -104,4 +111,23 @@ func (h *MarketHandler) GetQuote(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(quote)
+}
+
+// GetUniverse handles GET /api/market/universe — returns active stock symbols from stock_universe table
+func (h *MarketHandler) GetUniverse(w http.ResponseWriter, r *http.Request) {
+	ctx := context.Background()
+
+	symbols, err := h.universeRepo.GetActiveSymbols(ctx)
+	if err != nil {
+		logger.Error().Err(err).Msg("Failed to get stock universe")
+		http.Error(w, `{"error":"Failed to retrieve stock universe"}`, http.StatusInternalServerError)
+		return
+	}
+
+	if symbols == nil {
+		symbols = []string{}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(symbols)
 }
