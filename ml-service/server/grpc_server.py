@@ -196,7 +196,25 @@ class MLPredictionServicer(ml_service_pb2_grpc.MLPredictionServiceServicer):
                 logger.warning(f"Could not fetch model version from DB: {e}")
             
             logger.info(f"Successfully trained {ticker}, version: {model_version}")
-            
+
+            # Step 4: Run inference → write predictions to DB
+            try:
+                from daily.prediction_generator import PredictionGenerator
+                from data.loader import DataLoader
+
+                pred_date = DataLoader.get_latest_bar_date()
+                if not pred_date:
+                    from datetime import date as _date
+                    pred_date = _date.today().isoformat()
+
+                gen = PredictionGenerator()
+                gen.generate_daily_predictions([ticker], pred_date)
+                logger.info(f"Predictions written for {ticker} on {pred_date}")
+
+            except Exception as e:
+                # Prediction failure is non-fatal — model is still trained
+                logger.warning(f"Prediction step failed for {ticker}: {e}")
+
             return ml_service_pb2.TriggerTrainingResponse(
                 success=True,
                 status="complete",
