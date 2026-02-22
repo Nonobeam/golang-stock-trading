@@ -53,11 +53,46 @@ PORTFOLIO_CONFIG = {
     "horizon_weight_5d":  0.35,
     "horizon_weight_10d": 0.45,
 
-    # --- Hard filter thresholds ---
+    # --- Hard filter thresholds (ML-centric) ---
     "max_floor_prob":       0.20,    # stocks with floor_hit_prob > this are eliminated
     "min_daily_vol_k":      100,     # min avg daily volume in thousands of shares
     "min_expected_return":  0.004,   # minimum net-of-fee expected return (0.4%)
     "min_confidence":       0.60,    # minimum model prediction confidence
+
+    # --- Technical / market-structure filter thresholds ---
+    # Filter 1: Trend Direction
+    "trend_sma_short":      20,      # short SMA period (days)
+    "trend_sma_long":       60,      # long SMA period (days)
+    "trend_slope_days":     10,      # days over which SMA-20 slope must be ≥ 0
+
+    # Filter 2: Price Momentum Quality
+    "momentum_20d_min":    -0.05,    # min 20-day realized return (−5 %)
+    "momentum_60d_min":    -0.10,    # min 60-day realized return (−10 %)
+
+    # Filter 3: Volume Confirmation
+    "volume_short_window":  10,      # recent volume window (days)
+    "volume_long_window":   30,      # baseline volume window (days)
+    "volume_ratio_min":     0.80,    # min ratio: recent / baseline avg volume
+
+    # Filter 4: RSI Health Check
+    "rsi_period":           14,      # RSI look-back period
+    "rsi_lower":            35,      # min acceptable RSI (inclusive)
+    "rsi_upper":            75,      # max acceptable RSI (inclusive)
+
+    # Filter 5: Higher High / Higher Low
+    "hhhl_window":          20,      # half-window size for HH/HL comparison
+
+    # Filter 6: No Recent Sharp Drop
+    "sharp_drop_window":    10,      # look-back (trading days)
+    "sharp_drop_threshold": -0.05,   # reject if any single day return < this
+
+    # Filter 7: Distance From 52-Week High
+    "high52w_lookback":     252,     # trading days for 52-week high calculation
+    "high52w_ratio_min":    0.70,    # min ratio: price / 52-week high
+
+    # Filter 8: Positive Days Ratio
+    "posdays_window":       20,      # look-back window (trading days)
+    "posdays_ratio_min":    0.45,    # min fraction of up-or-flat closes
 
     # --- Optimiser constraints ---
     "portfolio_size":       5,       # number of stocks to select

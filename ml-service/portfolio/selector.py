@@ -133,6 +133,63 @@ def _load_floor_probs(tickers: List[str], pred_date: str) -> Dict[str, float]:
     return floor_probs
 
 
+def _load_price_history(
+    tickers: List[str],
+    lookback_days: int,
+    date: str,
+) -> Dict[str, List[Dict]]:
+    """
+    Load OHLCV price history for all tickers from daily_bars.
+
+    Returns:
+        {ticker: [{"date": ..., "open": ..., "high": ..., "low": ...,
+                   "close": ..., "volume": ...}, ...], ordered oldest-first}
+    """
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT ticker, date, open, high, low, close, volume
+                FROM "stock-trading".daily_bars
+                WHERE ticker = ANY(%(tickers)s)
+                  AND date <= %(end_date)s::date
+                  AND date >  %(end_date)s::date - %(lookback)s
+                ORDER BY ticker, date ASC
+                """,
+                {
+                    "tickers":  tickers,
+                    "end_date": date,
+                    "lookback": f"{lookback_days} days",
+                },
+            )
+            rows = cur.fetchall()
+    except Exception as e:
+        logger.error(f"Failed to load price history: {e}")
+        return {}
+    finally:
+        conn.close()
+
+    result: Dict[str, List[Dict]] = {}
+    for row in rows:
+        t = row["ticker"]
+        if t not in result:
+            result[t] = []
+        result[t].append({
+            "date":   str(row["date"]),
+            "open":   float(row["open"]   or 0),
+            "high":   float(row["high"]   or 0),
+            "low":    float(row["low"]    or 0),
+            "close":  float(row["close"]  or 0),
+            "volume": float(row["volume"] or 0),
+        })
+    logger.info(
+        f"Loaded price history for {len(result)}/{len(tickers)} tickers "
+        f"({lookback_days}d window ending {date})"
+    )
+    return result
+
+
 def _save_selections(
     week_start: str,
     selected: List[Dict],
@@ -248,8 +305,13 @@ def run(pred_date: Optional[str] = None, user_id: int = 1, skip_telegram: bool =
     # 4. Load avg daily volume from daily_bars (90-day window)
     vol_map = get_volume_map(tickers, lookback_days=90, date=run_date)
 
+    # 4b. Load OHLCV price history for technical filters (252-day window)
+    price_history = _load_price_history(tickers, lookback_days=252, date=run_date)
+
     # 5. Filter
-    candidates, audit_trail = filter_candidates(universe, predictions, floor_probs, vol_map)
+    candidates, audit_trail = filter_candidates(
+        universe, predictions, floor_probs, vol_map, price_history
+    )
 
     # 6. Score
     scored = compute_scores(candidates, predictions, floor_probs, vol_map)
